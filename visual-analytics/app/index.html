@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>VA Security Visual Analytics</title>
+    <link rel="stylesheet" href="styles.css?v=20260525-1">
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>VA Security Visual Analytics</h1>
+        <p>Multi-source investigation workspace for Firewall, IDS, Windows Security, PCAP, raw syslog and Nessus evidence.</p>
+      </div>
+      <div class="status" id="status">Loading data</div>
+    </header>
+
+    <main>
+      <div id="metrics" hidden></div>
+      <section class="band controls-band">
+        <div class="control-row">
+          <label for="sourceSelect">Data source</label>
+          <select id="sourceSelect">
+            <option value="all">All sources</option>
+            <option value="firewall">Firewall / Cisco ASA</option>
+            <option value="ids">IDS / Snort alerts</option>
+            <option value="security">Windows Security XML</option>
+            <option value="pcap">PCAP headers</option>
+            <option value="nessus">Nessus vulnerability scan</option>
+          </select>
+        </div>
+        <div class="tabs" id="tabs" aria-label="Analytics sections">
+          <button class="tab active" data-view="investigation">Investigation</button>
+          <button class="tab" data-view="story">Attack story</button>
+          <button class="tab" data-view="network">Network and flows</button>
+          <button class="tab" data-view="events">Events and vulnerabilities</button>
+          <button class="tab" data-view="catalog">Visualization map</button>
+        </div>
+      </section>
+
+      <section class="band view active" id="investigationView">
+        <div class="investigation-shell">
+          <div class="investigation-title">
+            <h2>Investigation of traffic patterns</h2>
+            <div class="pipeline-note">Dashboard reads prepared aggregates from <code>va_data.json</code>. Raw syslog is queried only by drill-down.</div>
+            <div class="time-chip" id="investigationTime">time</div>
+          </div>
+
+          <div class="investigation-filters">
+            <label>sourceIP
+              <select id="filterSourceIp"><option value="all">(Multiple...)</option></select>
+            </label>
+            <label>destIP
+              <select id="filterDestIp"><option value="all">(All)</option></select>
+            </label>
+            <label>classification
+              <select id="filterClassification">
+                <option value="all">(All)</option>
+                <option value="recon">Reconnaissance</option>
+                <option value="traffic">Traffic</option>
+                <option value="auth">Authentication</option>
+                <option value="risk">Vulnerability</option>
+              </select>
+            </label>
+            <label>priority
+              <select id="filterPriority">
+                <option value="all">(All)</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+            </label>
+            <label>label
+              <select id="filterLabel"><option value="all">(All)</option></select>
+            </label>
+          </div>
+
+          <div class="investigation-grid">
+            <section class="viz-card heat-card">
+              <h3>Source IP by Destination IP</h3>
+              <svg id="sourceDestHeat" class="heatmap" role="img"></svg>
+            </section>
+
+            <section class="viz-card events-card">
+              <h3>The events over time</h3>
+              <svg id="investigationEvents" class="mini-chart" role="img"></svg>
+            </section>
+
+            <section class="viz-card port-card">
+              <div class="viz-head">
+                <h3>Port activity over time</h3>
+                <select id="destPortSelect"><option value="all">(All)</option></select>
+              </div>
+              <svg id="portActivity" class="mini-chart" role="img"></svg>
+            </section>
+
+            <section class="viz-card dest-card">
+              <h3>The number of events by Destination IP</h3>
+              <div id="destIpBars" class="compact-bars"></div>
+            </section>
+
+            <section class="viz-card source-port-card">
+              <h3>Source port</h3>
+              <div id="sourcePortBars" class="compact-bars vertical-bars"></div>
+            </section>
+
+            <section class="viz-card packets-card">
+              <div class="viz-head">
+                <h3>Packets</h3>
+                <select id="packetInfoSelect"><option value="all">(All)</option></select>
+              </div>
+              <div id="packetBars" class="compact-bars packet-list"></div>
+            </section>
+          </div>
+
+          <section class="raw-drilldown">
+            <div class="raw-head">
+              <div>
+                <h3>Raw firewall evidence drill-down</h3>
+                <p>Original <code>raw_firewall_log_1.txt</code> is not loaded into the dashboard. It is scanned only when you request evidence for selected filters.</p>
+              </div>
+              <button id="rawLookupBtn" type="button">Fetch raw evidence</button>
+            </div>
+            <pre id="rawEvidence">Select source/destination/port filters, then fetch raw evidence.</pre>
+          </section>
+        </div>
+      </section>
+
+      <section class="band view" id="storyView">
+        <div class="section-head">
+          <h2>Attack story</h2>
+          <p>This view links vulnerability exposure, IDS reconnaissance, firewall sessions, packet-level bursts and Windows domain activity into one investigation narrative.</p>
+        </div>
+        <div class="story" id="story"></div>
+      </section>
+
+      <section class="band view" id="networkView">
+        <div class="section-head">
+          <h2>Network and flows</h2>
+          <p>Network telemetry is represented through port ranking, top talkers, source-target graph and protocol timelines.</p>
+        </div>
+        <div class="layout two">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Interaction graph</h3>
+              <span id="graphCaption"></span>
+            </div>
+            <svg id="flowGraph" class="chart graph" role="img"></svg>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Ports and services</h3>
+              <span>ranking</span>
+            </div>
+            <div id="portBars" class="bars"></div>
+          </div>
+        </div>
+        <div class="panel wide">
+          <div class="panel-head">
+            <h3>Traffic timeline</h3>
+            <span>time aggregates</span>
+          </div>
+          <svg id="trafficTimeline" class="chart timeline" role="img"></svg>
+        </div>
+      </section>
+
+      <section class="band view" id="eventsView">
+        <div class="section-head">
+          <h2>Events, alerts and vulnerabilities</h2>
+          <p>Security events and scans are summarized as event-id bars, risk matrices, account-IP tables and key indicator rankings.</p>
+        </div>
+        <div class="layout three">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>IDS alert types</h3>
+              <span>Snort</span>
+            </div>
+            <div id="idsBars" class="bars"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Windows Event IDs</h3>
+              <span>DC01</span>
+            </div>
+            <div id="eventBars" class="bars"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Nessus risk</h3>
+              <span>exposure</span>
+            </div>
+            <div id="riskMatrix" class="risk-matrix"></div>
+          </div>
+        </div>
+        <div class="layout two">
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Accounts and IPs</h3>
+              <span>Windows Security</span>
+            </div>
+            <div id="accountTable" class="table"></div>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <h3>Vulnerable hosts</h3>
+              <span>Nessus</span>
+            </div>
+            <div id="nessusHosts" class="bars"></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="band view" id="catalogView">
+        <div class="section-head">
+          <h2>Visualization map for cyber-data types</h2>
+          <p>This catalog connects data type, analytic task and visual representation for designing the VA system.</p>
+        </div>
+        <div class="catalog" id="catalog"></div>
+      </section>
+    </main>
+
+    <script src="app.js?v=20260525-1"></script>
+  </body>
+</html>

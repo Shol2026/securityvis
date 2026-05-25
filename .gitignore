@@ -1,0 +1,17 @@
+# Large original evidence files are intentionally excluded from GitHub.
+# The dashboard uses visual-analytics/data/va_data.json instead.
+firewall_log_1.csv
+IDS.txt
+Nessus.xls
+pcap_1.pcap
+raw_firewall_log_1.txt
+SecurityLog.xml
+
+# Python/cache artifacts
+__pycache__/
+*.py[cod]
+
+# Local/editor files
+.DS_Store
+Thumbs.db
+.vscode/
