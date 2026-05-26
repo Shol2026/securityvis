@@ -6,7 +6,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 
 APP_ROOT = Path(__file__).resolve().parent
-RAW_FIREWALL = APP_ROOT.parent / "raw_firewall_log_1.txt"
+RAW_FIREWALL_ROOT = APP_ROOT.parent / "FOL"
 
 
 class VAHandler(SimpleHTTPRequestHandler):
@@ -29,8 +29,11 @@ class VAHandler(SimpleHTTPRequestHandler):
 
         matches = []
         scanned = 0
-        if RAW_FIREWALL.exists():
-            with RAW_FIREWALL.open(encoding="utf-8", errors="replace") as fh:
+        files_scanned = 0
+        raw_files = sorted(RAW_FIREWALL_ROOT.glob("201104*/firewall/raw/*.txt"))
+        for path in raw_files:
+            files_scanned += 1
+            with path.open(encoding="utf-8", errors="replace") as fh:
                 for line in fh:
                     scanned += 1
                     if source and source not in line:
@@ -39,9 +42,12 @@ class VAHandler(SimpleHTTPRequestHandler):
                         continue
                     if port and f"/{port}" not in line and f":{port}" not in line:
                         continue
-                    matches.append(line.rstrip("\r\n"))
+                    clean_line = line.rstrip("\r\n")
+                    matches.append(f"{path.name}: {clean_line}")
                     if len(matches) >= limit:
                         break
+            if len(matches) >= limit:
+                break
 
         body = json.dumps(
             {
@@ -49,9 +55,11 @@ class VAHandler(SimpleHTTPRequestHandler):
                 "dest": dest or None,
                 "port": port or None,
                 "limit": limit,
+                "raw_files": len(raw_files),
+                "files_scanned": files_scanned,
                 "scanned_lines": scanned,
                 "matches": matches,
-                "note": "Raw firewall log is scanned only after explicit drill-down request.",
+                "note": "Official FOL raw firewall logs are scanned only after explicit drill-down request.",
             },
             ensure_ascii=False,
         ).encode("utf-8")

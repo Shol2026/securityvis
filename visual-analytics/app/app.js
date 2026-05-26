@@ -28,7 +28,7 @@ const colors = {
 const fmt = new Intl.NumberFormat("ru-RU");
 
 async function init() {
-  const res = await fetch("../data/va_data.json?v=20260525-2", { cache: "no-store" });
+  const res = await fetch("../data/va_data.json?v=20260526-fol", { cache: "no-store" });
   state.data = await res.json();
   document.getElementById("status").textContent = "Data loaded";
   populateInvestigationFilters();
@@ -103,10 +103,15 @@ function renderAll() {
 
 function renderNessusDashboard() {
   const nessus = state.data.nessus;
-  renderBars("nessusSeverityBars", nessus.risk || [], colors.red);
-  renderBars("nessusHostBars", nessus.top_hosts || [], colors.amber);
-  renderBars("nessusCveBars", nessus.top_cve_plugin || nessus.top_plugins || [], colors.violet);
-  renderNessusDetailTable(nessus.details || []);
+  const details = nessus.details || [];
+  drawNessusSeverityTreemap(document.getElementById("nessusSeverityTreemap"), nessus.risk || []);
+  drawMatrixHeatmap(
+    document.getElementById("nessusHostServiceHeat"),
+    buildNessusHostServiceCells(details),
+    { rowLimit: 10, colLimit: 10, color: "blue" }
+  );
+  drawNessusHostPluginScatter(document.getElementById("nessusHostPluginScatter"), details, nessus.top_cve_plugin || nessus.top_plugins || []);
+  drawNessusParallelCoordinates(document.getElementById("nessusParallelCoordinates"), details);
 }
 
 function renderWindowsLogsDashboard() {
@@ -145,12 +150,8 @@ function renderPcapDashboard() {
     pcap.top_pairs.map((d) => ({ row: d.source, col: d.target, value: d.value })),
     { rowLimit: 10, colLimit: 8, color: "red" }
   );
-  drawMatrixHeatmap(
-    document.getElementById("pcapSourcePortMatrix"),
-    (pcap.source_port_matrix || []).map((d) => ({ row: d.source, col: d.port, value: d.value, detail: d.protocol })),
-    { rowLimit: 10, colLimit: 12, color: "blue" }
-  );
-  renderPcapDetailTable(pcap.packet_details || []);
+  drawPcapTimePortScatter(document.getElementById("pcapTimePortScatter"), pcap.packet_details || [], pcap.source_port_matrix || []);
+  drawPcapParallelCoordinates(document.getElementById("pcapParallelCoordinates"), pcap);
 }
 
 function renderIdsDashboard() {
@@ -326,8 +327,9 @@ async function fetchRawEvidence() {
       el.textContent = `No raw syslog rows matched the selected filters.\nScanned lines: ${fmt.format(payload.scanned_lines)}\n\nTry selecting fewer filters.`;
     } else {
       el.textContent = [
-        `Raw file queried on demand: raw_firewall_log_1.txt`,
+        `Raw files queried on demand: FOL/*/firewall/raw/*.txt`,
         `Filters: source=${payload.source || "any"}, dest=${payload.dest || "any"}, port=${payload.port || "any"}`,
+        `Raw files available: ${fmt.format(payload.raw_files || 0)}, files scanned: ${fmt.format(payload.files_scanned || 0)}`,
         `Scanned lines: ${fmt.format(payload.scanned_lines)}, matches returned: ${payload.matches.length}`,
         "",
         ...payload.matches,
@@ -970,6 +972,159 @@ function renderPcapDetailTable(rows) {
   `;
 }
 
+function drawPcapTimePortScatter(svg, packetRows, matrixRows) {
+  if (!svg) return;
+  const width = svg.clientWidth || 620;
+  const height = svg.clientHeight || 360;
+  const pad = { top: 24, right: 28, bottom: 58, left: 80 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const grouped = new Map();
+  packetRows.forEach((row) => {
+    const time = String(row.time || "").replace("T", " ").slice(0, 16);
+    const port = String(row.destination_port || "");
+    if (!time || !port) return;
+    const key = `${time}|${port}|${row.protocol || ""}`;
+    const current = grouped.get(key) || { time, port, protocol: row.protocol || "", value: 0, length: 0 };
+    current.value += 1;
+    current.length += Number(row.length || 0);
+    grouped.set(key, current);
+  });
+
+  if (!grouped.size && matrixRows?.length) {
+    matrixRows.slice(0, 100).forEach((row, index) => {
+      const time = `rank ${Math.floor(index / 10) + 1}`;
+      grouped.set(`${time}|${row.port}|${row.protocol}`, {
+        time,
+        port: String(row.port),
+        protocol: row.protocol || "",
+        value: row.value,
+        length: row.value,
+      });
+    });
+  }
+
+  const points = [...grouped.values()].slice(0, 140);
+  if (!points.length) {
+    drawSvgEmptyState(svg, "No PCAP time-port scatter data", "No destination-port packet aggregates are available.");
+    return;
+  }
+
+  const times = unique(points.map((p) => p.time)).slice(0, 18);
+  const ports = unique(points.map((p) => p.port))
+    .sort((a, b) => Number(a) - Number(b))
+    .slice(0, 14);
+  const max = Math.max(...points.map((p) => p.value), 1);
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const xPos = (time) => pad.left + (times.indexOf(time) + 0.5) * (innerW / Math.max(times.length, 1));
+  const yPos = (port) => pad.top + innerH - (ports.indexOf(port) + 0.5) * (innerH / Math.max(ports.length, 1));
+
+  line(svg, pad.left, pad.top + innerH, width - pad.right, pad.top + innerH, "axis");
+  line(svg, pad.left, pad.top, pad.left, pad.top + innerH, "axis");
+  ports.forEach((port) => text(svg, 18, yPos(port) + 4, port, "tick-label"));
+  times.filter((_, i) => i % Math.ceil(times.length / 6) === 0).forEach((time) => {
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.setAttribute("x", xPos(time));
+    label.setAttribute("y", height - 14);
+    label.setAttribute("text-anchor", "end");
+    label.setAttribute("transform", `rotate(-35 ${xPos(time)} ${height - 14})`);
+    label.setAttribute("class", "tick-label");
+    label.textContent = time;
+    svg.appendChild(label);
+  });
+
+  points.forEach((point) => {
+    if (!times.includes(point.time) || !ports.includes(point.port)) return;
+    const fill = point.protocol === "UDP" ? colors.teal : point.protocol === "ICMP" ? colors.amber : colors.blue;
+    const radius = 3 + Math.sqrt(point.value / max) * 17;
+    circle(svg, xPos(point.time), yPos(point.port), radius, fill);
+  });
+
+  text(svg, pad.left, 14, "Bubble size = packet count; color = protocol", "tick-label");
+}
+
+function drawPcapParallelCoordinates(svg, pcap) {
+  if (!svg) return;
+  const detailRows = (pcap.packet_details || []).map((row) => ({
+    source: row.source,
+    destination: row.destination,
+    source_port: String(row.source_port || "none"),
+    destination_port: String(row.destination_port || "none"),
+    protocol: row.protocol || "Other",
+    length_bucket: bucketLength(row.length),
+    weight: Number(row.length || 1),
+  }));
+  const matrixRows = (pcap.source_port_matrix || []).map((row) => ({
+    source: row.source,
+    destination: "multiple",
+    source_port: "multiple",
+    destination_port: String(row.port),
+    protocol: row.protocol || "Other",
+    length_bucket: bucketCount(row.value),
+    weight: Number(row.value || 1),
+  }));
+  const sample = [...detailRows, ...matrixRows].slice(0, 100);
+  if (!sample.length) {
+    drawSvgEmptyState(svg, "No PCAP multivariate sample", "No packet detail or source-port aggregate rows are available.");
+    return;
+  }
+
+  const width = svg.clientWidth || 760;
+  const height = svg.clientHeight || 360;
+  const pad = { top: 42, right: 38, bottom: 34, left: 38 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const axes = [
+    { key: "source", label: "Source", values: topValues(sample, "source", 10), get: (d) => d.source },
+    { key: "destination", label: "Destination", values: topValues(sample, "destination", 10), get: (d) => d.destination },
+    { key: "source_port", label: "SrcPort", values: topValues(sample, "source_port", 10), get: (d) => d.source_port },
+    { key: "destination_port", label: "DstPort", values: topValues(sample, "destination_port", 10), get: (d) => d.destination_port },
+    { key: "protocol", label: "Protocol", values: topValues(sample, "protocol", 6), get: (d) => d.protocol },
+    { key: "length_bucket", label: "Length", values: ["small", "medium", "large", "very large", "low", "high", "very high"], get: (d) => d.length_bucket },
+  ];
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const x = (i) => pad.left + i * (innerW / Math.max(axes.length - 1, 1));
+  const y = (axis, value) => {
+    const values = axis.values.length ? axis.values : [value];
+    const index = Math.max(0, values.indexOf(value));
+    return pad.top + index * (innerH / Math.max(values.length - 1, 1));
+  };
+
+  axes.forEach((axis, i) => {
+    line(svg, x(i), pad.top, x(i), pad.top + innerH, "axis");
+    text(svg, x(i) - 18, 22, axis.label, "pc-axis-label");
+    axis.values.slice(0, 8).forEach((value) => {
+      const yy = y(axis, value);
+      line(svg, x(i) - 4, yy, x(i) + 4, yy, "axis");
+      text(svg, x(i) + 6, yy + 4, shortLabel(value), "pc-tick-label");
+    });
+  });
+
+  const max = Math.max(...sample.map((d) => d.weight), 1);
+  sample.forEach((row) => {
+    const points = axes.map((axis, i) => [x(i), y(axis, axis.get(row))]);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", points.map(([px, py], i) => `${i ? "L" : "M"} ${px} ${py}`).join(" "));
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", row.protocol === "UDP" ? colors.teal : row.protocol === "ICMP" ? colors.amber : colors.blue);
+    path.setAttribute("stroke-opacity", String(0.14 + Math.min(0.34, row.weight / max)));
+    path.setAttribute("stroke-width", row.weight > max * 0.5 ? "2" : "1.1");
+    svg.appendChild(path);
+  });
+}
+
+function bucketLength(value) {
+  const n = Number(value || 0);
+  if (n >= 1200) return "very large";
+  if (n >= 500) return "large";
+  if (n >= 100) return "medium";
+  return "small";
+}
+
 function drawProcessGraph(svg, edges) {
   if (!svg) return;
   if (!edges.length) {
@@ -1061,6 +1216,202 @@ function renderNessusDetailTable(rows) {
       </tbody>
     </table>
   `;
+}
+
+function drawNessusSeverityTreemap(svg, rows) {
+  if (!svg) return;
+  const severityOrder = {
+    "Security Hole": 0,
+    "Critical": 0,
+    "High": 1,
+    "Security Warning": 2,
+    "Medium": 2,
+    "Low": 3,
+    "Security Note": 4,
+    "Info": 4,
+    "(empty)": 5,
+  };
+  const data = [...rows].sort((a, b) => (severityOrder[a.key] ?? 9) - (severityOrder[b.key] ?? 9));
+  drawTreemap(svg, data);
+}
+
+function buildNessusHostServiceCells(details) {
+  const counts = new Map();
+  details.forEach((row) => {
+    const host = row.host || row.ip_address;
+    const service = row.service || row.port || "unknown";
+    if (!host || !service) return;
+    const key = `${host}|${service}`;
+    const current = counts.get(key) || { row: host, col: service, value: 0 };
+    current.value += severityWeight(row.severity);
+    counts.set(key, current);
+  });
+  return [...counts.values()];
+}
+
+function drawNessusHostPluginScatter(svg, details, fallbackRows) {
+  if (!svg) return;
+  const counts = new Map();
+  details.forEach((row) => {
+    const host = row.host || row.ip_address;
+    const finding = firstNonEmpty([firstCve(row.cve), row.plugin_id, row.plugin_name]);
+    if (!host || !finding) return;
+    const key = `${host}|${finding}`;
+    const current = counts.get(key) || { x: host, y: finding, value: 0, severity: row.severity };
+    current.value += 1;
+    current.severity = strongerSeverity(current.severity, row.severity);
+    counts.set(key, current);
+  });
+  const points = [...counts.values()];
+  if (!points.length && fallbackRows?.length) {
+    fallbackRows.slice(0, 30).forEach((row, index) => {
+      points.push({ x: `asset ${index + 1}`, y: row.key, value: row.value, severity: "Security Warning" });
+    });
+  }
+  drawSeverityScatter(svg, points);
+}
+
+function drawSeverityScatter(svg, points) {
+  const width = svg.clientWidth || 620;
+  const height = svg.clientHeight || 360;
+  const pad = { top: 22, right: 22, bottom: 76, left: 126 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+  if (!points.length) {
+    drawSvgEmptyState(svg, "No Nessus scatter data", "No host-CVE/plugin combinations are available.");
+    return;
+  }
+  const xs = unique(points.map((p) => p.x)).slice(0, 12);
+  const ys = unique(points.map((p) => p.y)).slice(0, 10);
+  const max = Math.max(...points.map((p) => p.value), 1);
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const xPos = (x) => pad.left + (xs.indexOf(x) + 0.5) * (innerW / Math.max(xs.length, 1));
+  const yPos = (y) => pad.top + (ys.indexOf(y) + 0.5) * (innerH / Math.max(ys.length, 1));
+
+  line(svg, pad.left, pad.top + innerH, width - pad.right, pad.top + innerH, "axis");
+  line(svg, pad.left, pad.top, pad.left, pad.top + innerH, "axis");
+  xs.forEach((x) => {
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.setAttribute("x", xPos(x));
+    label.setAttribute("y", height - 14);
+    label.setAttribute("text-anchor", "end");
+    label.setAttribute("transform", `rotate(-35 ${xPos(x)} ${height - 14})`);
+    label.setAttribute("class", "tick-label");
+    label.textContent = shortLabel(x);
+    svg.appendChild(label);
+  });
+  ys.forEach((y) => text(svg, 8, yPos(y) + 4, shortLabel(y), "tick-label"));
+  points.slice(0, 80).forEach((point) => {
+    if (!xs.includes(point.x) || !ys.includes(point.y)) return;
+    const radius = 4 + Math.sqrt(point.value / max) * 18;
+    circle(svg, xPos(point.x), yPos(point.y), radius, severityColor(point.severity));
+  });
+}
+
+function drawNessusParallelCoordinates(svg, details) {
+  if (!svg) return;
+  const sample = details
+    .filter((row) => row.host || row.ip_address)
+    .slice(0, 100)
+    .map((row) => ({
+      host: row.host || row.ip_address,
+      service: row.service || row.port || "unknown",
+      severity: row.severity || "unknown",
+      finding: firstNonEmpty([firstCve(row.cve), row.plugin_id, row.plugin_name, "unknown"]),
+      exploit: row.exploit_available || "unknown",
+      cvss: bucketCvss(row.cvss),
+      weight: severityWeight(row.severity),
+    }));
+  if (!sample.length) {
+    drawSvgEmptyState(svg, "No Nessus multivariate sample", "No vulnerability detail rows are available.");
+    return;
+  }
+
+  const width = svg.clientWidth || 760;
+  const height = svg.clientHeight || 360;
+  const pad = { top: 42, right: 38, bottom: 34, left: 38 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const axes = [
+    { key: "host", label: "Host", values: topValues(sample, "host", 10), get: (d) => d.host },
+    { key: "service", label: "Service", values: topValues(sample, "service", 10), get: (d) => d.service },
+    { key: "severity", label: "Severity", values: topValues(sample, "severity", 6), get: (d) => d.severity },
+    { key: "finding", label: "CVE/Plugin", values: topValues(sample, "finding", 8), get: (d) => d.finding },
+    { key: "cvss", label: "CVSS", values: ["unknown", "low", "medium", "high", "critical"], get: (d) => d.cvss },
+    { key: "exploit", label: "Exploit", values: topValues(sample, "exploit", 5), get: (d) => d.exploit },
+  ];
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const x = (i) => pad.left + i * (innerW / Math.max(axes.length - 1, 1));
+  const y = (axis, value) => {
+    const values = axis.values.length ? axis.values : [value];
+    const index = Math.max(0, values.indexOf(value));
+    return pad.top + index * (innerH / Math.max(values.length - 1, 1));
+  };
+
+  axes.forEach((axis, i) => {
+    line(svg, x(i), pad.top, x(i), pad.top + innerH, "axis");
+    text(svg, x(i) - 18, 22, axis.label, "pc-axis-label");
+    axis.values.slice(0, 8).forEach((value) => {
+      const yy = y(axis, value);
+      line(svg, x(i) - 4, yy, x(i) + 4, yy, "axis");
+      text(svg, x(i) + 6, yy + 4, shortLabel(value), "pc-tick-label");
+    });
+  });
+
+  sample.forEach((row) => {
+    const points = axes.map((axis, i) => [x(i), y(axis, axis.get(row))]);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", points.map(([px, py], i) => `${i ? "L" : "M"} ${px} ${py}`).join(" "));
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", severityColor(row.severity));
+    path.setAttribute("stroke-opacity", String(0.16 + row.weight * 0.08));
+    path.setAttribute("stroke-width", row.weight >= 4 ? "2" : "1.1");
+    svg.appendChild(path);
+  });
+}
+
+function severityWeight(severity) {
+  const text = String(severity || "").toLowerCase();
+  if (text.includes("hole") || text.includes("critical")) return 5;
+  if (text.includes("high")) return 4;
+  if (text.includes("warning") || text.includes("medium")) return 3;
+  if (text.includes("low")) return 2;
+  if (text.includes("note") || text.includes("info")) return 1;
+  return 1;
+}
+
+function severityColor(severity) {
+  const weight = severityWeight(severity);
+  if (weight >= 5) return colors.red;
+  if (weight >= 4) return "#d95f02";
+  if (weight >= 3) return colors.amber;
+  if (weight >= 2) return colors.teal;
+  return colors.blue;
+}
+
+function strongerSeverity(a, b) {
+  return severityWeight(b) > severityWeight(a) ? b : a;
+}
+
+function firstCve(value) {
+  const text = String(value || "");
+  return text.split(",").map((v) => v.trim()).find(Boolean) || "";
+}
+
+function firstNonEmpty(values) {
+  return values.find((v) => String(v || "").trim()) || "";
+}
+
+function bucketCvss(value) {
+  const n = Number(value || 0);
+  if (!n) return "unknown";
+  if (n >= 9) return "critical";
+  if (n >= 7) return "high";
+  if (n >= 4) return "medium";
+  return "low";
 }
 
 function drawSvgEmptyState(svg, title, subtitle) {

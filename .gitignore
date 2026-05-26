@@ -6,6 +6,11 @@ Nessus.xls
 pcap_1.pcap
 raw_firewall_log_1.txt
 SecurityLog.xml
+FOL/
+VAST11MC2_Network Description.doc
+VAST11MC2_Network_Description_strings.txt
+VA_Q1Q2_Article_*.docx
+~$*.docx
 
 # Python/cache artifacts
 __pycache__/

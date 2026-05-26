@@ -4,13 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>VA Security Visual Analytics</title>
-    <link rel="stylesheet" href="styles.css?v=20260526-4">
+    <link rel="stylesheet" href="styles.css?v=20260526-7">
   </head>
   <body>
     <header class="topbar">
       <div>
         <h1>VA Security Visual Analytics</h1>
-        <p>Multi-source investigation workspace for Firewall, IDS, Windows Security, PCAP, raw syslog and Nessus evidence.</p>
+        <p>VAST 2011 MC2 workspace for official FOL evidence: Firewall, IDS, Windows Security, PCAP, raw syslog and Nessus data.</p>
       </div>
       <div class="status" id="status">Loading data</div>
     </header>
@@ -163,13 +163,19 @@
       <section class="band view" id="pcapView">
         <div class="section-head">
           <h2>PCAP</h2>
-          <p>PCAP investigation shows actual packet-level traffic: first the volume over time, then IP conversations, destination ports and concrete packet/conversation evidence.</p>
+          <p>PCAP reasoning workflow for research-oriented visual analytics. PCAP is optional VAST evidence, so the dashboard uses deterministic header samples and file-level packet estimates for interactive overview.</p>
+        </div>
+        <div class="reasoning-strip">
+          <div><strong>Temporal reasoning</strong><span>When did packet-level traffic burst and which protocol dominated?</span></div>
+          <div><strong>Relational reasoning</strong><span>Which IP conversations form dense communication structures?</span></div>
+          <div><strong>Pattern recognition</strong><span>Do time-port patterns reveal scanning, bursts or service targeting?</span></div>
+          <div><strong>Multivariate reasoning</strong><span>How do source, destination, ports, protocol and packet size combine?</span></div>
         </div>
         <div class="pcap-grid">
           <section class="panel pcap-timeline">
             <div class="panel-head">
-              <h3>1. Timeline Packets / Traffic Volume</h3>
-              <span>Protocol by time</span>
+              <h3>1. Overview: Timeline Packets / Traffic Volume</h3>
+              <span>start here</span>
             </div>
             <svg id="pcapTimeline" class="chart fw-chart" role="img"></svg>
           </section>
@@ -182,17 +188,17 @@
           </section>
           <section class="panel pcap-portmatrix">
             <div class="panel-head">
-              <h3>3. Source IP x Destination Port Matrix</h3>
-              <span>Protocol as detail</span>
+              <h3>3. Time x Destination Port Scatter Plot</h3>
+              <span>attack pattern recognition</span>
             </div>
-            <svg id="pcapSourcePortMatrix" class="chart fw-chart" role="img"></svg>
+            <svg id="pcapTimePortScatter" class="chart fw-chart" role="img"></svg>
           </section>
-          <section class="panel pcap-table-panel">
+          <section class="panel pcap-parallel">
             <div class="panel-head">
-              <h3>4. Packet / Conversation Detail Table</h3>
-              <span>packet evidence</span>
+              <h3>4. Parallel Coordinates for Packet Flows</h3>
+              <span>multivariate reasoning</span>
             </div>
-            <div id="pcapDetailTable" class="detail-table"></div>
+            <svg id="pcapParallelCoordinates" class="chart fw-chart parallel-chart" role="img"></svg>
           </section>
         </div>
       </section>
@@ -238,36 +244,42 @@
       <section class="band view" id="nessusView">
         <div class="section-head">
           <h2>Nessus</h2>
-          <p>Nessus investigation starts with overall severity, then prioritizes vulnerable hosts, identifies repeated CVE/plugin findings and ends with remediation details.</p>
+          <p>Nessus reasoning workflow for research-oriented visual analytics: exposure overview, host-service risk structure, repeated vulnerability patterns and multivariate vulnerability correlation.</p>
+        </div>
+        <div class="reasoning-strip">
+          <div><strong>Exposure reasoning</strong><span>Which severity classes dominate the vulnerability surface?</span></div>
+          <div><strong>Asset-service reasoning</strong><span>Which hosts concentrate risk on specific services or ports?</span></div>
+          <div><strong>Pattern recognition</strong><span>Which CVE/plugin findings repeat across assets?</span></div>
+          <div><strong>Multivariate reasoning</strong><span>How do host, service, severity, CVE/plugin and exploit evidence combine?</span></div>
         </div>
         <div class="nessus-grid">
           <section class="panel nessus-severity">
             <div class="panel-head">
-              <h3>1. Vulnerabilities by Severity</h3>
-              <span>bar chart</span>
+              <h3>1. Overview: Vulnerability Exposure by Severity</h3>
+              <span>treemap overview</span>
             </div>
-            <div id="nessusSeverityBars" class="bars"></div>
+            <svg id="nessusSeverityTreemap" class="chart fw-chart" role="img"></svg>
           </section>
           <section class="panel nessus-hosts">
             <div class="panel-head">
-              <h3>2. Top Vulnerable Hosts</h3>
-              <span>horizontal bar chart</span>
+              <h3>2. Host x Service / Port Heatmap</h3>
+              <span>asset-service reasoning</span>
             </div>
-            <div id="nessusHostBars" class="bars"></div>
+            <svg id="nessusHostServiceHeat" class="chart fw-chart" role="img"></svg>
           </section>
           <section class="panel nessus-cve">
             <div class="panel-head">
-              <h3>3. Top CVE / Plugin ID</h3>
-              <span>repeated findings</span>
+              <h3>3. Host x CVE / Plugin Scatterplot</h3>
+              <span>pattern recognition</span>
             </div>
-            <div id="nessusCveBars" class="bars"></div>
+            <svg id="nessusHostPluginScatter" class="chart fw-chart" role="img"></svg>
           </section>
-          <section class="panel nessus-detail-panel">
+          <section class="panel nessus-parallel">
             <div class="panel-head">
-              <h3>4. Vulnerability Detail Table</h3>
-              <span>remediation worklist</span>
+              <h3>4. Parallel Coordinates for Vulnerability Findings</h3>
+              <span>multivariate reasoning</span>
             </div>
-            <div id="nessusDetailTable" class="detail-table"></div>
+            <svg id="nessusParallelCoordinates" class="chart fw-chart parallel-chart" role="img"></svg>
           </section>
         </div>
       </section>
@@ -276,7 +288,7 @@
         <div class="investigation-shell">
           <div class="investigation-title">
             <h2>Investigation of traffic patterns</h2>
-            <div class="pipeline-note">Dashboard reads prepared aggregates from <code>va_data.json</code>. Raw syslog is queried only by drill-down.</div>
+            <div class="pipeline-note">Dashboard reads prepared aggregates rebuilt from official <code>FOL</code> data. Raw syslog is queried only by drill-down.</div>
             <div class="time-chip" id="investigationTime">time</div>
           </div>
 
@@ -351,7 +363,7 @@
             <div class="raw-head">
               <div>
                 <h3>Raw firewall evidence drill-down</h3>
-                <p>Original <code>raw_firewall_log_1.txt</code> is not loaded into the dashboard. It is scanned only when you request evidence for selected filters.</p>
+                <p>Official <code>FOL/*/firewall/raw/*.txt</code> files are not loaded into the dashboard. They are scanned only when you request evidence for selected filters.</p>
               </div>
               <button id="rawLookupBtn" type="button">Fetch raw evidence</button>
             </div>
@@ -453,6 +465,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=20260526-4"></script>
+    <script src="app.js?v=20260526-7"></script>
   </body>
 </html>
