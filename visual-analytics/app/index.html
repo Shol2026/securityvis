@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>VA Security Visual Analytics</title>
-    <link rel="stylesheet" href="styles.css?v=20260525-1">
+    <link rel="stylesheet" href="styles.css?v=20260526-4">
   </head>
   <body>
     <header class="topbar">
@@ -31,10 +31,244 @@
         </div>
         <div class="tabs" id="tabs" aria-label="Analytics sections">
           <button class="tab active" data-view="investigation">Investigation</button>
+          <button class="tab" data-view="firewall">Firewall</button>
+          <button class="tab" data-view="ids">IDS</button>
+          <button class="tab" data-view="pcap">PCAP</button>
+          <button class="tab" data-view="windowsLogs">WindowsLogs</button>
+          <button class="tab" data-view="nessus">Nessus</button>
           <button class="tab" data-view="story">Attack story</button>
           <button class="tab" data-view="network">Network and flows</button>
           <button class="tab" data-view="events">Events and vulnerabilities</button>
           <button class="tab" data-view="catalog">Visualization map</button>
+        </div>
+      </section>
+
+      <section class="band view" id="firewallView">
+        <div class="section-head">
+          <h2>Firewall</h2>
+          <p>Firewall reasoning workflow for research-oriented visual analytics: temporal reasoning, relational reasoning, visual attack-pattern recognition and multivariate correlation.</p>
+        </div>
+        <div class="reasoning-strip">
+          <div><strong>Temporal reasoning</strong><span>When did activity spike and did ASA allow or deny it?</span></div>
+          <div><strong>Relational reasoning</strong><span>Which source-target pairs form dense communication structures?</span></div>
+          <div><strong>Pattern recognition</strong><span>Do time-port patterns indicate scanning, bursts or service-focused attacks?</span></div>
+          <div><strong>Multivariate reasoning</strong><span>How do time, IPs, ports, protocol and action combine in one path?</span></div>
+        </div>
+        <div class="firewall-grid">
+          <section class="panel fw-timeline">
+            <div class="panel-head">
+              <h3>1. Overview: Firewall Timeline + Allow/Deny</h3>
+              <span>start here</span>
+            </div>
+            <svg id="fwTimeline" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel fw-pivots">
+            <div class="panel-head">
+              <h3>Reasoning Pivots</h3>
+              <span>overview -> detail</span>
+            </div>
+            <div class="pivot-workflow">
+              <div>
+                <strong>1. Detect</strong>
+                <span>Use the timeline to find Deny/Built spikes and suspicious time windows.</span>
+              </div>
+              <div>
+                <strong>2. Relate</strong>
+                <span>Use IP x IP heatmap to identify source-target structures.</span>
+              </div>
+              <div>
+                <strong>3. Explain</strong>
+                <span>Use scatter and parallel coordinates to test scan/service hypotheses.</span>
+              </div>
+              <div>
+                <strong>4. Pivot</strong>
+                <span>Move to another evidence source to confirm the hypothesis.</span>
+              </div>
+            </div>
+            <div class="pivot-buttons">
+              <button type="button" class="pivot-btn" data-target-view="ids">Pivot to IDS</button>
+              <button type="button" class="pivot-btn" data-target-view="pcap">Pivot to PCAP</button>
+              <button type="button" class="pivot-btn" data-target-view="windowsLogs">Pivot to Logs</button>
+              <button type="button" class="pivot-btn" data-target-view="nessus">Pivot to Nessus</button>
+              <button type="button" class="pivot-btn secondary" data-target-view="investigation">Raw evidence</button>
+            </div>
+          </section>
+          <section class="panel fw-heatmap">
+            <div class="panel-head">
+              <h3>2. Source IP x Destination IP Heatmap</h3>
+              <span>relational reasoning</span>
+            </div>
+            <svg id="fwSourceDestHeat" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel fw-scatter">
+            <div class="panel-head">
+              <h3>3. Time x Destination Port Scatter Plot</h3>
+              <span>attack pattern recognition</span>
+            </div>
+            <svg id="fwTimePortScatter" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel fw-parallel">
+            <div class="panel-head">
+              <h3>4. Parallel Coordinates for Firewall Events</h3>
+              <span>multivariate reasoning</span>
+            </div>
+            <svg id="fwParallelCoordinates" class="chart fw-chart parallel-chart" role="img"></svg>
+          </section>
+        </div>
+      </section>
+
+      <section class="band view" id="idsView">
+        <div class="section-head">
+          <h2>IDS</h2>
+          <p>IDS reasoning workflow for research-oriented visual analytics: temporal alert bursts, relational source-target structures, scan-pattern recognition and multivariate correlation of source, target, port and signature.</p>
+        </div>
+        <div class="reasoning-strip">
+          <div><strong>Temporal reasoning</strong><span>When did alert bursts occur and which signatures dominated?</span></div>
+          <div><strong>Relational reasoning</strong><span>Which source-target pairs indicate scanning or targeted activity?</span></div>
+          <div><strong>Pattern recognition</strong><span>Do scatter patterns reveal one-to-many scans or dense alert clusters?</span></div>
+          <div><strong>Multivariate reasoning</strong><span>How do source, destination, port, signature and alert count combine?</span></div>
+        </div>
+        <div class="ids-grid">
+          <section class="panel ids-timeline">
+            <div class="panel-head">
+              <h3>1. Overview: Timeline IDS Alerts</h3>
+              <span>start here</span>
+            </div>
+            <svg id="idsTimelineBySignature" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel ids-heatmap">
+            <div class="panel-head">
+              <h3>2. SrcIP x DstIP Heatmap</h3>
+              <span>relational reasoning</span>
+            </div>
+            <svg id="idsSrcDstHeat" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel ids-scatter">
+            <div class="panel-head">
+              <h3>3. SrcIP x DstIP Scatterplot</h3>
+              <span>attack pattern recognition</span>
+            </div>
+            <svg id="idsSrcDstScatter" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel ids-parallel">
+            <div class="panel-head">
+              <h3>4. Parallel Coordinates for IDS Alerts</h3>
+              <span>multivariate reasoning</span>
+            </div>
+            <svg id="idsParallelCoordinates" class="chart fw-chart parallel-chart" role="img"></svg>
+          </section>
+        </div>
+      </section>
+
+      <section class="band view" id="pcapView">
+        <div class="section-head">
+          <h2>PCAP</h2>
+          <p>PCAP investigation shows actual packet-level traffic: first the volume over time, then IP conversations, destination ports and concrete packet/conversation evidence.</p>
+        </div>
+        <div class="pcap-grid">
+          <section class="panel pcap-timeline">
+            <div class="panel-head">
+              <h3>1. Timeline Packets / Traffic Volume</h3>
+              <span>Protocol by time</span>
+            </div>
+            <svg id="pcapTimeline" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel pcap-heatmap">
+            <div class="panel-head">
+              <h3>2. Source IP x Destination IP Heatmap</h3>
+              <span>COUNT(packets)</span>
+            </div>
+            <svg id="pcapSourceDestHeat" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel pcap-portmatrix">
+            <div class="panel-head">
+              <h3>3. Source IP x Destination Port Matrix</h3>
+              <span>Protocol as detail</span>
+            </div>
+            <svg id="pcapSourcePortMatrix" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel pcap-table-panel">
+            <div class="panel-head">
+              <h3>4. Packet / Conversation Detail Table</h3>
+              <span>packet evidence</span>
+            </div>
+            <div id="pcapDetailTable" class="detail-table"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="band view" id="windowsLogsView">
+        <div class="section-head">
+          <h2>WindowsLogs</h2>
+          <p>Windows investigation follows time, process, command and identity context. Process views are populated only when process creation fields exist in the log source.</p>
+        </div>
+        <div class="windows-grid">
+          <section class="panel win-timeline">
+            <div class="panel-head">
+              <h3>1. Timeline Windows Events by Event ID / Event Type</h3>
+              <span>EventID by time</span>
+            </div>
+            <svg id="winEventTimeline" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel win-process-tree">
+            <div class="panel-head">
+              <h3>2. Process Tree / Parent-Child Process Relationships</h3>
+              <span>network graph</span>
+            </div>
+            <svg id="winProcessTree" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel win-processes">
+            <div class="panel-head">
+              <h3>3. Top Processes + Suspicious Commands</h3>
+              <span>bar chart + detail</span>
+            </div>
+            <div id="winProcessBars" class="bars"></div>
+            <div id="winCommandTable" class="detail-table process-detail"></div>
+          </section>
+          <section class="panel win-user-host">
+            <div class="panel-head">
+              <h3>4. User / Host Activity Matrix</h3>
+              <span>User x Host heatmap</span>
+            </div>
+            <svg id="winUserHostHeat" class="chart fw-chart" role="img"></svg>
+          </section>
+        </div>
+      </section>
+
+      <section class="band view" id="nessusView">
+        <div class="section-head">
+          <h2>Nessus</h2>
+          <p>Nessus investigation starts with overall severity, then prioritizes vulnerable hosts, identifies repeated CVE/plugin findings and ends with remediation details.</p>
+        </div>
+        <div class="nessus-grid">
+          <section class="panel nessus-severity">
+            <div class="panel-head">
+              <h3>1. Vulnerabilities by Severity</h3>
+              <span>bar chart</span>
+            </div>
+            <div id="nessusSeverityBars" class="bars"></div>
+          </section>
+          <section class="panel nessus-hosts">
+            <div class="panel-head">
+              <h3>2. Top Vulnerable Hosts</h3>
+              <span>horizontal bar chart</span>
+            </div>
+            <div id="nessusHostBars" class="bars"></div>
+          </section>
+          <section class="panel nessus-cve">
+            <div class="panel-head">
+              <h3>3. Top CVE / Plugin ID</h3>
+              <span>repeated findings</span>
+            </div>
+            <div id="nessusCveBars" class="bars"></div>
+          </section>
+          <section class="panel nessus-detail-panel">
+            <div class="panel-head">
+              <h3>4. Vulnerability Detail Table</h3>
+              <span>remediation worklist</span>
+            </div>
+            <div id="nessusDetailTable" class="detail-table"></div>
+          </section>
         </div>
       </section>
 
@@ -219,6 +453,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=20260525-1"></script>
+    <script src="app.js?v=20260526-4"></script>
   </body>
 </html>

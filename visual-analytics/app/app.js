@@ -28,7 +28,7 @@ const colors = {
 const fmt = new Intl.NumberFormat("ru-RU");
 
 async function init() {
-  const res = await fetch("../data/va_data.json");
+  const res = await fetch("../data/va_data.json?v=20260525-2", { cache: "no-store" });
   state.data = await res.json();
   document.getElementById("status").textContent = "Data loaded";
   populateInvestigationFilters();
@@ -69,17 +69,125 @@ function bindControls() {
   });
 
   document.getElementById("rawLookupBtn")?.addEventListener("click", fetchRawEvidence);
+  document.querySelectorAll(".pivot-btn").forEach((button) => {
+    button.addEventListener("click", () => switchView(button.dataset.targetView));
+  });
 
   window.addEventListener("resize", debounce(renderAll, 150));
+}
+
+function switchView(viewName) {
+  const tab = document.querySelector(`.tab[data-view="${viewName}"]`);
+  const view = document.getElementById(`${viewName}View`);
+  if (!tab || !view) return;
+  document.querySelectorAll(".tab").forEach((b) => b.classList.remove("active"));
+  document.querySelectorAll(".view").forEach((v) => v.classList.remove("active"));
+  tab.classList.add("active");
+  view.classList.add("active");
+  renderAll();
 }
 
 function renderAll() {
   if (!state.data) return;
   renderInvestigation();
+  renderFirewall();
+  renderIdsDashboard();
+  renderPcapDashboard();
+  renderWindowsLogsDashboard();
+  renderNessusDashboard();
   renderStory();
   renderNetwork();
   renderEvents();
   renderCatalog();
+}
+
+function renderNessusDashboard() {
+  const nessus = state.data.nessus;
+  renderBars("nessusSeverityBars", nessus.risk || [], colors.red);
+  renderBars("nessusHostBars", nessus.top_hosts || [], colors.amber);
+  renderBars("nessusCveBars", nessus.top_cve_plugin || nessus.top_plugins || [], colors.violet);
+  renderNessusDetailTable(nessus.details || []);
+}
+
+function renderWindowsLogsDashboard() {
+  const sec = state.data.security;
+  const eventSeries = (sec.event_ids || []).slice(0, 6).map((item, index) => ({
+    key: item.key,
+    color: [colors.teal, colors.blue, colors.amber, colors.red, colors.violet, colors.gray][index],
+  }));
+  drawTimeline(document.getElementById("winEventTimeline"), {
+    rows: sec.timeline || [],
+    series: eventSeries,
+  });
+  drawProcessGraph(document.getElementById("winProcessTree"), sec.process_edges || []);
+  renderProcessBars(sec.top_processes || []);
+  renderWindowsCommandTable(sec.process_details || []);
+  drawMatrixHeatmap(
+    document.getElementById("winUserHostHeat"),
+    (sec.user_host_matrix || []).map((d) => ({ row: d.user, col: d.host, value: d.value, detail: d.event_id })),
+    { rowLimit: 12, colLimit: 10, color: "blue" }
+  );
+}
+
+function renderPcapDashboard() {
+  const pcap = state.data.pcap;
+  drawTimeline(document.getElementById("pcapTimeline"), {
+    rows: pcap.timeline || [],
+    series: [
+      { key: "TCP", color: colors.blue },
+      { key: "UDP", color: colors.teal },
+      { key: "ICMP", color: colors.amber },
+      { key: "Other", color: colors.gray },
+    ],
+  });
+  drawMatrixHeatmap(
+    document.getElementById("pcapSourceDestHeat"),
+    pcap.top_pairs.map((d) => ({ row: d.source, col: d.target, value: d.value })),
+    { rowLimit: 10, colLimit: 8, color: "red" }
+  );
+  drawMatrixHeatmap(
+    document.getElementById("pcapSourcePortMatrix"),
+    (pcap.source_port_matrix || []).map((d) => ({ row: d.source, col: d.port, value: d.value, detail: d.protocol })),
+    { rowLimit: 10, colLimit: 12, color: "blue" }
+  );
+  renderPcapDetailTable(pcap.packet_details || []);
+}
+
+function renderIdsDashboard() {
+  const ids = state.data.ids;
+  drawLineChart(document.getElementById("idsTimelineBySignature"), ids.timeline || [], "alerts", colors.red);
+  drawCategoricalScatter(
+    document.getElementById("idsSrcDstScatter"),
+    ids.top_pairs.map((d) => ({ x: stripEndpoint(d.source), y: stripEndpoint(d.target), value: d.value }))
+  );
+  drawMatrixHeatmap(
+    document.getElementById("idsSrcDstHeat"),
+    ids.top_pairs.map((d) => ({ row: stripEndpoint(d.source), col: stripEndpoint(d.target), value: d.value })),
+    { rowLimit: 10, colLimit: 8, color: "red" }
+  );
+  drawIdsParallelCoordinates(document.getElementById("idsParallelCoordinates"), ids);
+}
+
+function renderFirewall() {
+  const fw = state.data.firewall;
+  const sourcePortMatrix = fw.source_port_matrix || [];
+  const suspiciousConnections = fw.suspicious_connections || [];
+  drawTimeline(document.getElementById("fwTimeline"), {
+    rows: fw.timeline,
+    series: [
+      { key: "Built", color: colors.blue },
+      { key: "Teardown", color: colors.teal },
+      { key: "Deny", color: colors.red },
+      { key: "(empty)", color: colors.gray },
+    ],
+  });
+  drawMatrixHeatmap(
+    document.getElementById("fwSourceDestHeat"),
+    fw.top_flows.map((d) => ({ row: d.source, col: d.target, value: d.value })),
+    { rowLimit: 10, colLimit: 8, color: "red" }
+  );
+  drawFirewallTimePortScatter(document.getElementById("fwTimePortScatter"), suspiciousConnections, sourcePortMatrix);
+  drawParallelCoordinates(document.getElementById("fwParallelCoordinates"), suspiciousConnections);
 }
 
 function renderMetrics() {
@@ -272,6 +380,76 @@ function drawPortActivity(svg, model) {
   drawLineChart(svg, rows, "activity", colors.amber);
 }
 
+function drawTreemap(svg, rows) {
+  if (!svg) return;
+  const width = svg.clientWidth || 520;
+  const height = svg.clientHeight || 360;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+  const data = rows.slice(0, 10);
+  const total = data.reduce((sum, d) => sum + Number(d.value || 0), 0) || 1;
+  const palette = [colors.red, colors.blue, colors.teal, colors.amber, colors.violet, colors.gray];
+  let x = 0;
+  let y = 0;
+  let w = width;
+  let h = height;
+  data.forEach((item, index) => {
+    const ratio = Number(item.value || 0) / total;
+    const horizontal = w >= h;
+    const size = Math.max(18, (horizontal ? w : h) * ratio);
+    const cell = horizontal
+      ? { x, y, w: Math.min(size, width - x), h }
+      : { x, y, w, h: Math.min(size, height - y) };
+    rect(svg, cell.x, cell.y, Math.max(1, cell.w - 2), Math.max(1, cell.h - 2), palette[index % palette.length]);
+    if (cell.w > 95 && cell.h > 36) {
+      text(svg, cell.x + 8, cell.y + 18, shortLabel(item.key), "treemap-label");
+      text(svg, cell.x + 8, cell.y + 35, compact(item.value), "treemap-value");
+    }
+    if (horizontal) {
+      x += cell.w;
+      w = Math.max(0, width - x);
+    } else {
+      y += cell.h;
+      h = Math.max(0, height - y);
+    }
+  });
+}
+
+function drawCategoricalScatter(svg, points) {
+  if (!svg) return;
+  const width = svg.clientWidth || 620;
+  const height = svg.clientHeight || 360;
+  const pad = { top: 22, right: 22, bottom: 70, left: 106 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+  const xs = unique(points.map((p) => p.x)).slice(0, 12);
+  const ys = unique(points.map((p) => p.y)).slice(0, 10);
+  const max = Math.max(...points.map((p) => p.value), 1);
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const xPos = (x) => pad.left + (xs.indexOf(x) + 0.5) * (innerW / Math.max(xs.length, 1));
+  const yPos = (y) => pad.top + (ys.indexOf(y) + 0.5) * (innerH / Math.max(ys.length, 1));
+
+  line(svg, pad.left, pad.top + innerH, width - pad.right, pad.top + innerH, "axis");
+  line(svg, pad.left, pad.top, pad.left, pad.top + innerH, "axis");
+  xs.forEach((x, i) => {
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.setAttribute("x", xPos(x));
+    label.setAttribute("y", height - 12);
+    label.setAttribute("text-anchor", "end");
+    label.setAttribute("transform", `rotate(-35 ${xPos(x)} ${height - 12})`);
+    label.setAttribute("class", "tick-label");
+    label.textContent = shortLabel(x);
+    svg.appendChild(label);
+  });
+  ys.forEach((y) => text(svg, 8, yPos(y) + 4, shortLabel(y), "tick-label"));
+  points.slice(0, 70).forEach((point) => {
+    if (!xs.includes(point.x) || !ys.includes(point.y)) return;
+    const radius = 4 + Math.sqrt(point.value / max) * 18;
+    circle(svg, xPos(point.x), yPos(point.y), radius, "rgba(201, 74, 68, 0.68)");
+  });
+}
+
 function renderStory() {
   const filtered = state.source === "all"
     ? state.data.story
@@ -460,7 +638,443 @@ function drawHeatmap(svg, links) {
   });
 }
 
+function drawMatrixHeatmap(svg, cells, options = {}) {
+  if (!svg) return;
+  const width = svg.clientWidth || 760;
+  const height = svg.clientHeight || 360;
+  const rowLimit = options.rowLimit || 10;
+  const colLimit = options.colLimit || 10;
+  const palette = options.color === "blue" ? [47, 111, 179] : [176, 44, 44];
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const rowScores = new Map();
+  const colScores = new Map();
+  cells.forEach((cell) => {
+    rowScores.set(cell.row, (rowScores.get(cell.row) || 0) + cell.value);
+    colScores.set(cell.col, (colScores.get(cell.col) || 0) + cell.value);
+  });
+  const rows = [...rowScores.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).slice(0, rowLimit);
+  const cols = [...colScores.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).slice(0, colLimit);
+  const left = 118;
+  const top = 36;
+  const bottom = 24;
+  const cellW = (width - left - 12) / Math.max(cols.length, 1);
+  const cellH = (height - top - bottom) / Math.max(rows.length, 1);
+  const max = Math.max(...cells.map((d) => d.value), 1);
+
+  cols.forEach((col, i) => text(svg, left + i * cellW + 4, 22, shortLabel(col), "tick-label"));
+  rows.forEach((row, i) => text(svg, 8, top + i * cellH + cellH / 2 + 4, shortLabel(row), "tick-label"));
+
+  rows.forEach((row, y) => {
+    cols.forEach((col, x) => {
+      const found = cells.find((d) => d.row === row && d.col === col);
+      const value = found ? found.value : 0;
+      const alpha = value ? 0.12 + (value / max) * 0.88 : 0.035;
+      rect(
+        svg,
+        left + x * cellW,
+        top + y * cellH,
+        Math.max(2, cellW - 2),
+        Math.max(2, cellH - 2),
+        `rgba(${palette[0]}, ${palette[1]}, ${palette[2]}, ${alpha})`
+      );
+      if (value && cellW > 45 && cellH > 22) {
+        text(svg, left + x * cellW + 5, top + y * cellH + 15, compact(value), "heat-value");
+      }
+    });
+  });
+}
+
+function renderFirewallDetailTable(rows) {
+  const container = document.getElementById("fwDetailTable");
+  if (!container) return;
+  if (!rows.length) {
+    container.innerHTML = `<div class="empty-state">No suspicious firewall detail rows are available. Refresh with Ctrl+F5 or rebuild va_data.json.</div>`;
+    return;
+  }
+  const columns = [
+    ["time", "Date/time"],
+    ["source_ip", "Source IP"],
+    ["destination_ip", "Destination IP"],
+    ["source_port", "Source port"],
+    ["destination_port", "Destination port"],
+    ["protocol", "Protocol"],
+    ["direction", "Direction"],
+    ["action", "Action"],
+    ["destination_service", "Destination service"],
+    ["message_code", "Message code"],
+  ];
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>${columns.map(([, label]) => `<th>${label}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows.slice(0, 120).map((row) => `
+          <tr>
+            ${columns.map(([key]) => `<td>${escapeHtml(row[key] || "")}</td>`).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function drawFirewallTimePortScatter(svg, rows, matrixRows) {
+  if (!svg) return;
+  const width = svg.clientWidth || 620;
+  const height = svg.clientHeight || 360;
+  const pad = { top: 24, right: 28, bottom: 58, left: 80 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const grouped = new Map();
+  rows.forEach((row) => {
+    const time = String(row.time || "").slice(0, 16);
+    const port = String(row.destination_port || "");
+    if (!time || !port || port === "(empty)") return;
+    const key = `${time}|${port}|${row.action || ""}`;
+    const current = grouped.get(key) || { time, port, action: row.action || "", value: 0 };
+    current.value += 1;
+    grouped.set(key, current);
+  });
+  if (!grouped.size && matrixRows?.length) {
+    matrixRows.slice(0, 80).forEach((row, index) => {
+      const time = `rank ${Math.floor(index / 10) + 1}`;
+      const key = `${time}|${row.port}|${row.protocol || ""}`;
+      grouped.set(key, { time, port: String(row.port), action: row.protocol || "", value: row.value });
+    });
+  }
+  const points = [...grouped.values()].slice(0, 120);
+  if (!points.length) {
+    drawSvgEmptyState(svg, "No firewall port scatter data", "No destination-port rows are available for this view.");
+    return;
+  }
+
+  const times = unique(points.map((p) => p.time)).slice(0, 18);
+  const ports = unique(points.map((p) => p.port))
+    .sort((a, b) => Number(a) - Number(b))
+    .slice(0, 14);
+  const max = Math.max(...points.map((p) => p.value), 1);
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const xPos = (time) => pad.left + (times.indexOf(time) + 0.5) * (innerW / Math.max(times.length, 1));
+  const yPos = (port) => pad.top + innerH - (ports.indexOf(port) + 0.5) * (innerH / Math.max(ports.length, 1));
+
+  line(svg, pad.left, pad.top + innerH, width - pad.right, pad.top + innerH, "axis");
+  line(svg, pad.left, pad.top, pad.left, pad.top + innerH, "axis");
+  ports.forEach((port) => text(svg, 18, yPos(port) + 4, port, "tick-label"));
+  times.filter((_, i) => i % Math.ceil(times.length / 6) === 0).forEach((time) => {
+    const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+    label.setAttribute("x", xPos(time));
+    label.setAttribute("y", height - 14);
+    label.setAttribute("text-anchor", "end");
+    label.setAttribute("transform", `rotate(-35 ${xPos(time)} ${height - 14})`);
+    label.setAttribute("class", "tick-label");
+    label.textContent = time;
+    svg.appendChild(label);
+  });
+
+  points.forEach((point) => {
+    if (!times.includes(point.time) || !ports.includes(point.port)) return;
+    const fill = point.action === "Deny" ? colors.red : point.action === "Teardown" ? colors.teal : colors.blue;
+    const radius = 3 + Math.sqrt(point.value / max) * 16;
+    circle(svg, xPos(point.time), yPos(point.port), radius, fill);
+  });
+
+  text(svg, pad.left, 14, "Bubble size = event count; red = Deny, blue = Built, teal = Teardown", "tick-label");
+}
+
+function drawParallelCoordinates(svg, rows) {
+  if (!svg) return;
+  const width = svg.clientWidth || 760;
+  const height = svg.clientHeight || 360;
+  const pad = { top: 42, right: 38, bottom: 34, left: 38 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const sample = rows
+    .filter((row) => row.time && row.source_ip && row.destination_ip && row.destination_port)
+    .slice(0, 80);
+  if (!sample.length) {
+    drawSvgEmptyState(svg, "No multivariate firewall sample", "No rows with time, source, destination and port are available.");
+    return;
+  }
+
+  const axes = [
+    { key: "time", label: "Time", values: unique(sample.map((d) => String(d.time).slice(11, 16))).slice(0, 10), get: (d) => String(d.time).slice(11, 16) },
+    { key: "source_ip", label: "Source IP", values: topValues(sample, "source_ip", 10), get: (d) => d.source_ip },
+    { key: "destination_ip", label: "Destination IP", values: topValues(sample, "destination_ip", 10), get: (d) => d.destination_ip },
+    { key: "destination_port", label: "Dst Port", values: topValues(sample, "destination_port", 10), get: (d) => d.destination_port },
+    { key: "protocol", label: "Protocol", values: topValues(sample, "protocol", 6), get: (d) => d.protocol },
+    { key: "action", label: "Action", values: topValues(sample, "action", 6), get: (d) => d.action },
+  ];
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const x = (i) => pad.left + i * (innerW / Math.max(axes.length - 1, 1));
+  const y = (axis, value) => {
+    const values = axis.values.length ? axis.values : [value];
+    const index = Math.max(0, values.indexOf(value));
+    return pad.top + index * (innerH / Math.max(values.length - 1, 1));
+  };
+
+  axes.forEach((axis, i) => {
+    line(svg, x(i), pad.top, x(i), pad.top + innerH, "axis");
+    text(svg, x(i) - 22, 22, axis.label, "pc-axis-label");
+    axis.values.slice(0, 8).forEach((value) => {
+      const yy = y(axis, value);
+      line(svg, x(i) - 4, yy, x(i) + 4, yy, "axis");
+      text(svg, x(i) + 6, yy + 4, shortLabel(value), "pc-tick-label");
+    });
+  });
+
+  sample.forEach((row) => {
+    const points = axes.map((axis, i) => [x(i), y(axis, axis.get(row))]);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", points.map(([px, py], i) => `${i ? "L" : "M"} ${px} ${py}`).join(" "));
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", row.action === "Deny" ? colors.red : row.action === "Teardown" ? colors.teal : colors.blue);
+    path.setAttribute("stroke-opacity", row.action === "Deny" ? "0.42" : "0.22");
+    path.setAttribute("stroke-width", row.action === "Deny" ? "1.8" : "1.1");
+    svg.appendChild(path);
+  });
+}
+
+function drawIdsParallelCoordinates(svg, ids) {
+  if (!svg) return;
+  const pairRows = (ids.top_pairs || []).map((row) => ({
+    source: stripEndpoint(row.source),
+    destination: stripEndpoint(row.target),
+    port: "any",
+    signature: "source-target alert",
+    count_bucket: bucketCount(row.value),
+    value: row.value,
+  }));
+  const portRows = (ids.source_port_matrix || []).map((row) => ({
+    source: row.source,
+    destination: "multiple",
+    port: String(row.port),
+    signature: shortSignature(row.signature),
+    count_bucket: bucketCount(row.value),
+    value: row.value,
+  }));
+  const sample = [...pairRows, ...portRows].slice(0, 90);
+  if (!sample.length) {
+    drawSvgEmptyState(svg, "No IDS multivariate sample", "No source-target or source-port IDS aggregates are available.");
+    return;
+  }
+
+  const width = svg.clientWidth || 760;
+  const height = svg.clientHeight || 360;
+  const pad = { top: 42, right: 38, bottom: 34, left: 38 };
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+
+  const axes = [
+    { key: "source", label: "SrcIP", values: topValues(sample, "source", 10), get: (d) => d.source },
+    { key: "destination", label: "DstIP", values: topValues(sample, "destination", 10), get: (d) => d.destination },
+    { key: "port", label: "DstPort", values: topValues(sample, "port", 10), get: (d) => d.port },
+    { key: "signature", label: "Signature", values: topValues(sample, "signature", 8), get: (d) => d.signature },
+    { key: "count_bucket", label: "Count", values: ["low", "medium", "high", "very high"], get: (d) => d.count_bucket },
+  ];
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const x = (i) => pad.left + i * (innerW / Math.max(axes.length - 1, 1));
+  const y = (axis, value) => {
+    const values = axis.values.length ? axis.values : [value];
+    const index = Math.max(0, values.indexOf(value));
+    return pad.top + index * (innerH / Math.max(values.length - 1, 1));
+  };
+
+  axes.forEach((axis, i) => {
+    line(svg, x(i), pad.top, x(i), pad.top + innerH, "axis");
+    text(svg, x(i) - 18, 22, axis.label, "pc-axis-label");
+    axis.values.slice(0, 8).forEach((value) => {
+      const yy = y(axis, value);
+      line(svg, x(i) - 4, yy, x(i) + 4, yy, "axis");
+      text(svg, x(i) + 6, yy + 4, shortLabel(value), "pc-tick-label");
+    });
+  });
+
+  const max = Math.max(...sample.map((d) => d.value), 1);
+  sample.forEach((row) => {
+    const points = axes.map((axis, i) => [x(i), y(axis, axis.get(row))]);
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", points.map(([px, py], i) => `${i ? "L" : "M"} ${px} ${py}`).join(" "));
+    path.setAttribute("fill", "none");
+    path.setAttribute("stroke", row.port === "any" ? colors.red : colors.blue);
+    path.setAttribute("stroke-opacity", String(0.16 + Math.min(0.32, row.value / max)));
+    path.setAttribute("stroke-width", row.value > max * 0.5 ? "2" : "1.1");
+    svg.appendChild(path);
+  });
+}
+
+function shortSignature(value) {
+  const text = String(value || "alert");
+  if (text.includes("Portscan")) return "TCP Portscan";
+  if (text.includes("Portsweep")) return "TCP Portsweep";
+  if (text.includes("Window Scale")) return "TCP Window Scale";
+  if (text.includes("Fragmentation")) return "Fragmentation";
+  return shortLabel(text);
+}
+
+function bucketCount(value) {
+  const n = Number(value || 0);
+  if (n >= 500) return "very high";
+  if (n >= 100) return "high";
+  if (n >= 20) return "medium";
+  return "low";
+}
+
+function topValues(rows, key, limit) {
+  const counts = new Map();
+  rows.forEach((row) => counts.set(row[key], (counts.get(row[key]) || 0) + 1));
+  return [...counts.entries()]
+    .filter(([value]) => value !== undefined && value !== null && value !== "")
+    .sort((a, b) => b[1] - a[1])
+    .map(([value]) => String(value))
+    .slice(0, limit);
+}
+
+function renderPcapDetailTable(rows) {
+  const container = document.getElementById("pcapDetailTable");
+  if (!container) return;
+  if (!rows.length) {
+    container.innerHTML = `<div class="empty-state">No PCAP detail rows are available. Rebuild va_data.json.</div>`;
+    return;
+  }
+  const columns = [
+    ["no", "No."],
+    ["time", "Date/time"],
+    ["source", "Source"],
+    ["destination", "Destination"],
+    ["protocol", "Protocol"],
+    ["length", "Length"],
+    ["source_port", "Source_port"],
+    ["destination_port", "Dest_port"],
+  ];
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>${columns.map(([, label]) => `<th>${label}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows.slice(0, 160).map((row) => `
+          <tr>
+            ${columns.map(([key]) => `<td>${escapeHtml(row[key] ?? "")}</td>`).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function drawProcessGraph(svg, edges) {
+  if (!svg) return;
+  if (!edges.length) {
+    drawSvgEmptyState(
+      svg,
+      "No process creation data available",
+      "This SecurityLog.xml does not contain ParentProcessName / ProcessName / CommandLine fields."
+    );
+    return;
+  }
+  drawGraph(svg, edges);
+}
+
+function renderProcessBars(rows) {
+  const container = document.getElementById("winProcessBars");
+  if (!container) return;
+  if (!rows.length) {
+    container.innerHTML = `<div class="empty-state">No ProcessName/Image fields found in this Windows log.</div>`;
+    return;
+  }
+  renderBars("winProcessBars", rows, colors.violet);
+}
+
+function renderWindowsCommandTable(rows) {
+  const container = document.getElementById("winCommandTable");
+  if (!container) return;
+  if (!rows.length) {
+    container.innerHTML = `<div class="empty-state">No CommandLine/Image/Hash process detail rows are available in this Windows Security export.</div>`;
+    return;
+  }
+  const columns = [
+    ["time", "TimeCreated"],
+    ["computer", "Computer"],
+    ["user", "User"],
+    ["process_name", "ProcessName"],
+    ["parent_process_name", "ParentProcessName"],
+    ["command_line", "CommandLine"],
+    ["image", "Image"],
+    ["hash", "Hash"],
+    ["event_id", "EventID"],
+  ];
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>${columns.map(([, label]) => `<th>${label}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows.slice(0, 100).map((row) => `
+          <tr>
+            ${columns.map(([key]) => `<td>${escapeHtml(row[key] ?? "")}</td>`).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function renderNessusDetailTable(rows) {
+  const container = document.getElementById("nessusDetailTable");
+  if (!container) return;
+  if (!rows.length) {
+    container.innerHTML = `<div class="empty-state">No Nessus vulnerability detail rows are available. Rebuild va_data.json.</div>`;
+    return;
+  }
+  const columns = [
+    ["host", "Host"],
+    ["ip_address", "IP Address"],
+    ["port", "Port"],
+    ["service", "Service"],
+    ["plugin_id", "Plugin ID"],
+    ["plugin_name", "Plugin Name"],
+    ["severity", "Severity"],
+    ["cvss", "CVSS"],
+    ["cve", "CVE"],
+    ["exploit_available", "Exploit Available"],
+    ["solution", "Solution"],
+  ];
+  container.innerHTML = `
+    <table>
+      <thead>
+        <tr>${columns.map(([, label]) => `<th>${label}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${rows.slice(0, 200).map((row) => `
+          <tr>
+            ${columns.map(([key]) => `<td>${escapeHtml(row[key] ?? "")}</td>`).join("")}
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+}
+
+function drawSvgEmptyState(svg, title, subtitle) {
+  const width = svg.clientWidth || 520;
+  const height = svg.clientHeight || 360;
+  svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
+  svg.innerHTML = "";
+  rect(svg, 0, 0, width, height, "#fbfcfd");
+  text(svg, 24, 42, title, "empty-svg-title");
+  text(svg, 24, 66, subtitle, "empty-svg-subtitle");
+}
+
 function drawTimeline(svg, config) {
+  if (!svg) return;
   const width = svg.clientWidth || 900;
   const height = svg.clientHeight || 250;
   const pad = { top: 18, right: 18, bottom: 38, left: 48 };
@@ -613,6 +1227,11 @@ function unique(values) {
 
 function shortLabel(value) {
   return String(value).length > 15 ? `${String(value).slice(0, 14)}...` : String(value);
+}
+
+function stripEndpoint(value) {
+  const text = String(value || "");
+  return text.includes(":") && text.split(":").length === 2 ? text.split(":")[0] : text;
 }
 
 function shortTime(value) {

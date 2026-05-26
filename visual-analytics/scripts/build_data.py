@@ -26,6 +26,49 @@ def minute_key(ts):
     return ts.strftime("%Y-%m-%d %H:%M")
 
 
+def split_endpoint(value):
+    value = str(value or "").strip()
+    if value.count(":") == 1:
+        host, port = value.rsplit(":", 1)
+        return host, port
+    return value, ""
+
+
+def clean_process_name(value):
+    value = str(value or "").strip()
+    if value in {"", "-", "(empty)", "0x0"}:
+        return ""
+    value = value.replace("\\", "/")
+    return value.rsplit("/", 1)[-1]
+
+
+def extract_cves(text):
+    return sorted(set(re.findall(r"CVE-\d{4}-\d{4,7}", text or "")))
+
+
+def extract_first(pattern, text):
+    match = re.search(pattern, text or "", re.I)
+    return match.group(1).strip() if match else ""
+
+
+def extract_exploit_available(text):
+    text = text or ""
+    match = re.search(r"Exploit(?:s)? available\s*:\s*(yes|no|true|false)", text, re.I)
+    if match:
+        return match.group(1)
+    if re.search(r"exploit", text, re.I):
+        return "mentioned"
+    return ""
+
+
+def extract_section(text, title):
+    text = text or ""
+    match = re.search(rf"{re.escape(title)} :\\n\\n(.*?)(?:\\n\\n[A-Z][A-Za-z ]+ :|$)", text, re.S)
+    if not match:
+        return ""
+    return match.group(1).replace("\\n", " ").strip()[:220]
+
+
 def parse_firewall():
     path = ROOT / "firewall_log_1.csv"
     ops = Counter()
@@ -37,7 +80,9 @@ def parse_firewall():
     dport = Counter()
     services = Counter()
     flows = Counter()
+    source_port_matrix = Counter()
     hourly = defaultdict(Counter)
+    detail_rows = []
     rows = blank = 0
     first = last = None
 
@@ -76,6 +121,30 @@ def parse_firewall():
             services[svc] += 1
             if s not in ("", "(empty)") and d not in ("", "(empty)"):
                 flows[(s, d, dp)] += 1
+            if s not in ("", "(empty)") and dp not in ("", "(empty)"):
+                source_port_matrix[(s, dp, pr)] += 1
+
+            is_suspicious = (
+                op == "Deny"
+                or dp in {"135", "139", "445", "3389", "43025", "43032", "49155", "49158"}
+                or svc in {"epmap", "microsoft-ds", "netbios-ssn", "3389_tcp"}
+            )
+            if is_suspicious and len(detail_rows) < 500:
+                detail_rows.append(
+                    {
+                        "time": date_text,
+                        "source_ip": s,
+                        "destination_ip": d,
+                        "source_port": sp,
+                        "destination_port": dp,
+                        "protocol": pr,
+                        "direction": row.get("Direction") or "(empty)",
+                        "action": op,
+                        "operation": op,
+                        "destination_service": svc,
+                        "message_code": row.get("Message code") or "(empty)",
+                    }
+                )
 
     return {
         "rows_total": rows,
@@ -95,6 +164,11 @@ def parse_firewall():
             {"source": s, "target": d, "port": p, "value": int(v)}
             for (s, d, p), v in flows.most_common(30)
         ],
+        "source_port_matrix": [
+            {"source": s, "port": p, "protocol": pr, "value": int(v)}
+            for (s, p, pr), v in source_port_matrix.most_common(80)
+        ],
+        "suspicious_connections": detail_rows,
         "timeline": [
             {"time": k, **{op: int(v) for op, v in c.items()}}
             for k, c in sorted(hourly.items())
@@ -110,7 +184,9 @@ def parse_ids():
     src = Counter()
     dst = Counter()
     pairs = Counter()
+    source_port_matrix = Counter()
     hourly = defaultdict(Counter)
+    hourly_signature = defaultdict(Counter)
     current = None
     first = last = None
     total = 0
@@ -134,9 +210,14 @@ def parse_ids():
                     first = ts if first is None or ts < first else first
                     last = ts if last is None or ts > last else last
                     hourly[hour_key(ts)][current] += 1
+                    hourly_signature[hour_key(ts)][current] += 1
                 src[s] += 1
                 dst[d] += 1
                 pairs[(s, d)] += 1
+                clean_src, src_port = split_endpoint(s)
+                clean_dst, dst_port = split_endpoint(d)
+                if clean_src and dst_port:
+                    source_port_matrix[(clean_src, dst_port, current)] += 1
                 current = None
 
     return {
@@ -150,9 +231,17 @@ def parse_ids():
             {"source": s, "target": d, "value": int(v)}
             for (s, d), v in pairs.most_common(25)
         ],
+        "source_port_matrix": [
+            {"source": s, "port": p, "signature": sig, "value": int(v)}
+            for (s, p, sig), v in source_port_matrix.most_common(80)
+        ],
         "timeline": [
             {"time": k, "alerts": int(sum(c.values()))}
             for k, c in sorted(hourly.items())
+        ],
+        "timeline_by_signature": [
+            {"time": k, **{sig: int(v) for sig, v in c.most_common(6)}}
+            for k, c in sorted(hourly_signature.items())
         ],
     }
 
@@ -165,6 +254,10 @@ def parse_security_xml():
     ips = Counter()
     computers = Counter()
     statuses = Counter()
+    user_host_matrix = Counter()
+    processes = Counter()
+    process_edges = Counter()
+    process_details = []
     hourly = defaultdict(Counter)
     events = 0
     first = last = None
@@ -175,6 +268,7 @@ def parse_security_xml():
         events += 1
         ts = None
         event_id = None
+        computer_name = ""
         system = elem.find(ns + "System")
         if system is not None:
             eid_el = system.find(ns + "EventID")
@@ -183,7 +277,8 @@ def parse_security_xml():
                 event_ids[event_id] += 1
             comp = system.find(ns + "Computer")
             if comp is not None:
-                computers[comp.text or "(empty)"] += 1
+                computer_name = comp.text or "(empty)"
+                computers[computer_name] += 1
             tc = system.find(ns + "TimeCreated")
             if tc is not None and "SystemTime" in tc.attrib:
                 ts_text = tc.attrib["SystemTime"].replace("Z", "+00:00")
@@ -197,16 +292,58 @@ def parse_security_xml():
                     hourly[hour_key(ts.replace(tzinfo=None))][event_id or "(empty)"] += 1
 
         data = elem.find(ns + "EventData")
+        event_fields = {}
         if data is not None:
             for d in data.findall(ns + "Data"):
                 name = d.attrib.get("Name")
                 text = d.text or ""
+                if name:
+                    event_fields[name] = text
                 if name in ("TargetUserName", "SubjectUserName") and text and text != "-":
                     users[text] += 1
                 elif name == "IpAddress" and text and text != "-":
                     ips[text] += 1
                 elif name == "Status" and text:
                     statuses[text] += 1
+
+        user = event_fields.get("TargetUserName") or event_fields.get("SubjectUserName") or ""
+        host_or_ip = event_fields.get("WorkstationName") or event_fields.get("IpAddress") or ""
+        if user and user != "-" and host_or_ip and host_or_ip != "-":
+            user_host_matrix[(user, host_or_ip, event_id or "(empty)")] += 1
+
+        proc = (
+            event_fields.get("ProcessName")
+            or event_fields.get("Image")
+            or event_fields.get("ProcessNameBuffer")
+            or ""
+        )
+        parent = (
+            event_fields.get("ParentProcessName")
+            or event_fields.get("ParentImage")
+            or event_fields.get("CreatorProcessName")
+            or ""
+        )
+        command = event_fields.get("CommandLine") or event_fields.get("ProcessCommandLine") or ""
+        proc_clean = clean_process_name(proc)
+        parent_clean = clean_process_name(parent)
+        if proc_clean:
+            processes[proc_clean] += 1
+        if proc_clean and parent_clean:
+            process_edges[(parent_clean, proc_clean)] += 1
+        if proc_clean and len(process_details) < 300:
+            process_details.append(
+                {
+                    "time": ts.isoformat() if ts else "",
+                    "computer": computer_name,
+                    "user": user,
+                    "process_name": proc_clean,
+                    "parent_process_name": parent_clean,
+                    "command_line": command,
+                    "image": proc,
+                    "hash": event_fields.get("Hash") or event_fields.get("Hashes") or "",
+                    "event_id": event_id or "",
+                }
+            )
         elem.clear()
 
     return {
@@ -218,6 +355,16 @@ def parse_security_xml():
         "top_ips": top(ips, 15),
         "computers": top(computers),
         "statuses": top(statuses),
+        "user_host_matrix": [
+            {"user": u, "host": h, "event_id": eid, "value": int(v)}
+            for (u, h, eid), v in user_host_matrix.most_common(100)
+        ],
+        "top_processes": top(processes, 20),
+        "process_edges": [
+            {"source": p, "target": c, "value": int(v)}
+            for (p, c), v in process_edges.most_common(50)
+        ],
+        "process_details": process_details,
         "timeline": [
             {"time": k, "events": int(sum(c.values())), **{eid: int(v) for eid, v in c.items()}}
             for k, c in sorted(hourly.items())
@@ -234,6 +381,8 @@ def parse_pcap():
     pairs = Counter()
     src_ports = Counter()
     ports = Counter()
+    source_port_matrix = Counter()
+    packet_details = []
     minute = defaultdict(lambda: {"TCP": 0, "UDP": 0, "ICMP": 0, "Other": 0})
     packets = 0
     total_incl = 0
@@ -277,6 +426,33 @@ def parse_pcap():
                 sp, dp = struct.unpack("!HH", data[14 + ihl : 14 + ihl + 4])
                 src_ports[("TCP" if proto == 6 else "UDP", sp)] += 1
                 ports[("TCP" if proto == 6 else "UDP", dp)] += 1
+                source_port_matrix[(s, dp, label)] += 1
+                if len(packet_details) < 500 and (dp in {53, 80, 135, 139, 443, 445, 3389, 43025, 43032} or packets % 20000 == 0):
+                    packet_details.append(
+                        {
+                            "no": packets,
+                            "time": ts.isoformat(),
+                            "source": s,
+                            "destination": d,
+                            "protocol": label,
+                            "length": incl,
+                            "source_port": sp,
+                            "destination_port": dp,
+                        }
+                    )
+            elif len(packet_details) < 500 and proto == 1 and packets % 1000 == 0:
+                packet_details.append(
+                    {
+                        "no": packets,
+                        "time": ts.isoformat(),
+                        "source": s,
+                        "destination": d,
+                        "protocol": label,
+                        "length": incl,
+                        "source_port": "",
+                        "destination_port": "",
+                    }
+                )
 
     return {
         "packets": packets,
@@ -301,6 +477,11 @@ def parse_pcap():
             {"key": f"{proto}/{port}", "value": int(v)}
             for (proto, port), v in ports.most_common(15)
         ],
+        "source_port_matrix": [
+            {"source": s, "port": p, "protocol": proto, "value": int(v)}
+            for (s, p, proto), v in source_port_matrix.most_common(100)
+        ],
+        "packet_details": packet_details,
         "timeline": [{"time": k, **v} for k, v in sorted(minute.items())],
     }
 
@@ -326,6 +507,8 @@ def parse_nessus():
     plugins = Counter()
     ports = Counter()
     synopsis = Counter()
+    cve_or_plugin = Counter()
+    details = []
     markers = []
     result_rows = 0
     host_count = 0
@@ -341,13 +524,42 @@ def parse_nessus():
                         markers.append({"type": row[3], "time": row[4]})
                 if row[0] == "results":
                     result_rows += 1
-                    hosts[row[2]] += 1
-                    ports[row[3]] += 1
-                    plugins[row[4]] += 1
-                    risk[row[5] or "(empty)"] += 1
-                    m = re.search(r"Synopsis :\\n\\n(.*?)\\n\\nDescription", row[6], re.S)
+                    host = row[2]
+                    port = row[3]
+                    plugin_id = row[4]
+                    severity = row[5] or "(empty)"
+                    body = row[6]
+                    hosts[host] += 1
+                    ports[port] += 1
+                    plugins[plugin_id] += 1
+                    risk[severity] += 1
+                    cves = extract_cves(body)
+                    if cves:
+                        for cve in cves[:5]:
+                            cve_or_plugin[cve] += 1
+                    else:
+                        cve_or_plugin[plugin_id or "(empty)"] += 1
+                    m = re.search(r"Synopsis :\\n\\n(.*?)\\n\\nDescription", body, re.S)
+                    synopsis_text = ""
                     if m:
-                        synopsis[m.group(1).replace("\\n", " ")[:150]] += 1
+                        synopsis_text = m.group(1).replace("\\n", " ")[:150]
+                        synopsis[synopsis_text] += 1
+                    if len(details) < 500:
+                        details.append(
+                            {
+                                "host": host,
+                                "ip_address": host,
+                                "port": port,
+                                "service": port,
+                                "plugin_id": plugin_id,
+                                "plugin_name": synopsis_text or plugin_id,
+                                "severity": severity,
+                                "cvss": extract_first(r"CVSS(?: Base Score)?\\s*:\\s*([0-9.]+)", body),
+                                "cve": ", ".join(cves[:8]),
+                                "exploit_available": extract_exploit_available(body),
+                                "solution": extract_section(body, "Solution"),
+                            }
+                        )
     except Exception as exc:
         markers.append({"type": "parse_warning", "time": str(exc)})
 
@@ -358,8 +570,10 @@ def parse_nessus():
         "risk": top(risk),
         "top_hosts": top(hosts),
         "top_plugins": top(plugins),
+        "top_cve_plugin": top(cve_or_plugin, 20),
         "top_ports": top(ports),
         "top_synopsis": top(synopsis, 15),
+        "details": details,
     }
 
 
