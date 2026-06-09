@@ -157,6 +157,7 @@ def parse_firewall():
     day_counts = Counter()
     hourly = defaultdict(Counter)
     detail_rows = []
+    detail_rows_by_day = Counter()
     rows = blank = parsed_files = 0
     first = last = None
 
@@ -204,10 +205,10 @@ def parse_firewall():
 
                 is_sensitive = dp in {"21", "22", "23", "25", "53", "80", "88", "135", "139", "389", "443", "445", "3389", "43025", "43032"}
                 is_suspicious = op == "Deny" or is_sensitive
-                if is_suspicious and len(detail_rows) < 900:
+                if is_suspicious and detail_rows_by_day[day] < 600:
                     detail_rows.append(
                         {
-                            "time": row.get("Date/time", ""),
+                            "time": ts.isoformat() if ts else row.get("Date/time", ""),
                             "source_ip": s,
                             "destination_ip": d,
                             "source_port": sp,
@@ -222,6 +223,7 @@ def parse_firewall():
                             "day": day,
                         }
                     )
+                    detail_rows_by_day[day] += 1
 
     return {
         "source_files": [str(p.relative_to(ROOT)) for p in paths],
@@ -274,6 +276,7 @@ def parse_ids():
     hourly_signature = defaultdict(Counter)
     day_counts = Counter()
     sample = []
+    sample_by_day = Counter()
     first = last = None
     total = 0
     current = None
@@ -328,7 +331,7 @@ def parse_ids():
                         _, dst_port = split_endpoint(d_endpoint)
                         if clean_src and dst_port:
                             source_port_matrix[(clean_src, dst_port, signature)] += 1
-                        if len(sample) < 800:
+                        if sample_by_day[day] < 600:
                             sample.append(
                                 {
                                     "time": ts.isoformat() if ts else "",
@@ -341,6 +344,7 @@ def parse_ids():
                                     "raw_ref": f"{path.name}:{current['line']}",
                                 }
                             )
+                            sample_by_day[day] += 1
                         current = None
 
     return {
@@ -384,6 +388,9 @@ def parse_security_xml():
     computers = Counter()
     statuses = Counter()
     user_host_matrix = Counter()
+    users_by_hour = defaultdict(Counter)
+    ips_by_hour = defaultdict(Counter)
+    user_host_by_hour = defaultdict(Counter)
     processes = Counter()
     process_edges = Counter()
     hourly = defaultdict(Counter)
@@ -426,6 +433,7 @@ def parse_security_xml():
 
             data = elem.find(ns + "EventData")
             event_fields = {}
+            hour = hour_key(ts.replace(tzinfo=None)) if ts else None
             if data is not None:
                 for d in data.findall(ns + "Data"):
                     name = d.attrib.get("Name")
@@ -434,8 +442,12 @@ def parse_security_xml():
                         event_fields[name] = text
                     if name in ("TargetUserName", "SubjectUserName") and not empty(text):
                         users[text] += 1
+                        if hour:
+                            users_by_hour[hour][text] += 1
                     elif name in ("IpAddress", "ClientAddress", "SourceAddress") and not empty(text):
                         ips[text] += 1
+                        if hour:
+                            ips_by_hour[hour][text] += 1
                     elif name == "Status" and text:
                         statuses[text] += 1
 
@@ -448,6 +460,8 @@ def parse_security_xml():
             )
             if not empty(user) and not empty(host_or_ip):
                 user_host_matrix[(user, host_or_ip, event_id)] += 1
+                if hour:
+                    user_host_by_hour[hour][(user, host_or_ip, event_id)] += 1
 
             proc = event_fields.get("ProcessName") or event_fields.get("Image") or event_fields.get("ProcessNameBuffer") or ""
             parent = event_fields.get("ParentProcessName") or event_fields.get("ParentImage") or event_fields.get("CreatorProcessName") or ""
@@ -491,6 +505,21 @@ def parse_security_xml():
             {"user": u, "host": h, "event_id": eid, "value": int(v)}
             for (u, h, eid), v in user_host_matrix.most_common(180)
         ],
+        "top_users_by_hour": [
+            {"time": hour, "key": user, "value": int(value)}
+            for hour, counter in sorted(users_by_hour.items())
+            for user, value in counter.most_common(20)
+        ],
+        "top_ips_by_hour": [
+            {"time": hour, "key": ip, "value": int(value)}
+            for hour, counter in sorted(ips_by_hour.items())
+            for ip, value in counter.most_common(20)
+        ],
+        "user_host_matrix_by_hour": [
+            {"time": hour, "user": u, "host": h, "event_id": eid, "value": int(value)}
+            for hour, counter in sorted(user_host_by_hour.items())
+            for (u, h, eid), value in counter.most_common(80)
+        ],
         "top_processes": top(processes, 25),
         "process_edges": [
             {"source": p, "target": c, "value": int(v)}
@@ -518,6 +547,7 @@ def parse_pcap():
     day_counts = Counter()
     file_summaries = []
     packet_details = []
+    packet_details_by_day = Counter()
     packets = 0
     sampled_packets = 0
     total_incl = 0
@@ -606,7 +636,8 @@ def parse_pcap():
                         file_src_ports[(proto_name, sp)] += 1
                         file_ports[(proto_name, dp)] += 1
                         file_source_port_matrix[(s, dp, proto_name)] += 1
-                        if len(packet_details) < 1200 and (
+                        packet_day = ts.strftime("%Y-%m-%d")
+                        if packet_details_by_day[packet_day] < 600 and (
                             dp in {25, 53, 80, 88, 135, 139, 389, 443, 445, 514, 3389, 43025, 43032}
                             or packet_index == start
                         ):
@@ -623,7 +654,11 @@ def parse_pcap():
                                     "file": path.name,
                                 }
                             )
-                    elif len(packet_details) < 1200 and proto == 1 and packet_index == start:
+                            packet_details_by_day[packet_day] += 1
+                    elif proto == 1 and packet_index == start:
+                        packet_day = ts.strftime("%Y-%m-%d")
+                        if packet_details_by_day[packet_day] >= 600:
+                            continue
                         packet_details.append(
                             {
                                 "no": packets + packet_index,
@@ -637,6 +672,7 @@ def parse_pcap():
                                 "file": path.name,
                             }
                         )
+                        packet_details_by_day[packet_day] += 1
         file_packets = estimated_packets
         packets += estimated_packets
         sampled_packets += file_sampled

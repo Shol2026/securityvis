@@ -4,13 +4,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>VA Security Visual Analytics</title>
-    <link rel="stylesheet" href="styles.css?v=20260526-7">
+    <link rel="stylesheet" href="styles.css?v=20260609-1">
   </head>
   <body>
     <header class="topbar">
       <div>
         <h1>VA Security Visual Analytics</h1>
-        <p>VAST 2011 MC2 workspace for official FOL evidence: Firewall, IDS, Windows Security, PCAP, raw syslog and Nessus data.</p>
+        <p>VAST 2011 MC2 workspace for official FOL evidence: Network Evidence, Host &amp; Identity, Risk &amp; Exposure, raw syslog and attack-story views.</p>
       </div>
       <div class="status" id="status">Loading data</div>
     </header>
@@ -24,23 +24,204 @@
             <option value="all">All sources</option>
             <option value="firewall">Firewall / Cisco ASA</option>
             <option value="ids">IDS / Snort alerts</option>
-            <option value="security">Windows Security XML</option>
+            <option value="security">Host &amp; Identity / Windows Security</option>
             <option value="pcap">PCAP headers</option>
-            <option value="nessus">Nessus vulnerability scan</option>
+            <option value="nessus">Risk &amp; Exposure / Nessus</option>
           </select>
         </div>
         <div class="tabs" id="tabs" aria-label="Analytics sections">
           <button class="tab active" data-view="investigation">Investigation</button>
+          <button class="tab" data-view="combination">Network Evidence</button>
+          <button class="tab" data-view="networkEvidenceNew">Network Evidence New</button>
           <button class="tab" data-view="firewall">Firewall</button>
           <button class="tab" data-view="ids">IDS</button>
           <button class="tab" data-view="pcap">PCAP</button>
-          <button class="tab" data-view="windowsLogs">WindowsLogs</button>
-          <button class="tab" data-view="nessus">Nessus</button>
+          <button class="tab" data-view="windowsLogs">Host &amp; Identity</button>
+          <button class="tab" data-view="nessus">Risk &amp; Exposure</button>
           <button class="tab" data-view="story">Attack story</button>
           <button class="tab" data-view="network">Network and flows</button>
           <button class="tab" data-view="events">Events and vulnerabilities</button>
           <button class="tab" data-view="catalog">Visualization map</button>
         </div>
+      </section>
+
+      <section class="band view" id="combinationView">
+        <div class="section-head">
+          <h2>Network Evidence</h2>
+          <p>Combined Firewall + IDS + PCAP evidence answers what happened in the network, who communicated with whom, and which ports, signatures and packets support the activity.</p>
+        </div>
+        <div class="reasoning-strip">
+          <div><strong>Temporal reasoning</strong><span>Compare Firewall sessions, IDS alerts and PCAP packets on one network-activity timeline.</span></div>
+          <div><strong>Relational reasoning</strong><span>Reveal dense IP-to-IP communication and detection structures across network sources.</span></div>
+          <div><strong>Pattern recognition</strong><span>Use time-port scatter patterns to identify scans, bursts and service-focused activity.</span></div>
+          <div><strong>Evidence layers</strong><span>Switch between combined evidence and Firewall, IDS or PCAP layers inside this dashboard.</span></div>
+        </div>
+        <div class="combination-grid">
+          <section class="panel combination-timeline">
+            <div class="panel-head">
+              <h3>1. Timeline of Network Activity</h3>
+              <span>Firewall + IDS + PCAP</span>
+            </div>
+            <svg id="comboTimeline" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel combination-pivots">
+            <div class="panel-head">
+              <h3>Source-Specific Evidence Layers</h3>
+              <span>shown inside Network Evidence</span>
+            </div>
+            <div class="pivot-workflow">
+              <div>
+                <strong>Firewall</strong>
+                <span>Validate ASA Built, Teardown and Deny activity for selected IPs and ports.</span>
+              </div>
+              <div>
+                <strong>IDS</strong>
+                <span>Inspect Snort signatures, priorities and source-target alert patterns.</span>
+              </div>
+              <div>
+                <strong>PCAP</strong>
+                <span>Confirm packet-level conversations, protocols and destination ports.</span>
+              </div>
+            </div>
+            <div class="pivot-buttons combo-layer-buttons">
+              <button type="button" class="pivot-btn combo-layer-btn active" data-combo-layer="all">All evidence</button>
+              <button type="button" class="pivot-btn combo-layer-btn" data-combo-layer="firewall">Firewall layer</button>
+              <button type="button" class="pivot-btn combo-layer-btn" data-combo-layer="ids">IDS layer</button>
+              <button type="button" class="pivot-btn combo-layer-btn" data-combo-layer="pcap">PCAP layer</button>
+            </div>
+            <div id="comboLayerSummary" class="layer-summary"></div>
+          </section>
+          <section class="panel combination-heatmap">
+            <div class="panel-head">
+              <h3>2. IP x IP Heatmap</h3>
+              <span>communication and alert density</span>
+            </div>
+            <svg id="comboIpHeatmap" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel combination-scatter">
+            <div class="panel-head">
+              <h3>3. Time x Port Scatterplot</h3>
+              <span>ports, signatures and packets</span>
+            </div>
+            <svg id="comboTimePortScatter" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel combination-parallel">
+            <div class="panel-head">
+              <h3>4. Parallel Coordinates</h3>
+              <span>source, IP, port, evidence type</span>
+            </div>
+            <svg id="comboParallelCoordinates" class="chart fw-chart parallel-chart" role="img"></svg>
+          </section>
+        </div>
+      </section>
+
+      <section class="band view" id="networkEvidenceNewView">
+        <div class="section-head">
+          <h2>Network Evidence New</h2>
+          <p>Copy of Network Evidence with one compact supporting view. Core views preserve temporal, relational, pattern-recognition and multivariate reasoning; the mini view summarizes Firewall actions, IDS priorities and PCAP protocol composition.</p>
+        </div>
+        <div class="reasoning-strip">
+          <div><strong>Core reasoning</strong><span>Timeline, IP matrix, time-port scatterplot and parallel coordinates remain the main analytical path.</span></div>
+          <div><strong>Composition context</strong><span>A small summary view shows which evidence classes dominate without turning metrics into the main dashboard.</span></div>
+          <div><strong>Overview to detail</strong><span>The analyst starts with time and IP structure, then uses composition to justify the observed pattern.</span></div>
+          <div><strong>Cross-source evidence</strong><span>Firewall, IDS and PCAP are compared as complementary layers rather than isolated dashboards.</span></div>
+        </div>
+        <div class="network-evidence-controls">
+          <label for="newNetEvidenceSourceSelect">Evidence Source</label>
+          <select id="newNetEvidenceSourceSelect">
+            <option value="all">All</option>
+            <option value="firewall">Firewall</option>
+            <option value="ids">IDS</option>
+            <option value="pcap">PCAP</option>
+          </select>
+          <label for="newNetDirectionSelect">Direction</label>
+          <select id="newNetDirectionSelect">
+            <option value="all">All</option>
+            <option value="outbound">outbound</option>
+            <option value="inbound">inbound</option>
+            <option value="empty">(empty)</option>
+          </select>
+          <label for="newNetTimeGranularitySelect">Time detail</label>
+          <select id="newNetTimeGranularitySelect">
+            <option value="day">Day overview</option>
+            <option value="hour">1 hour overview</option>
+            <option value="ten">10 min zoom</option>
+            <option value="minute">1 min detail</option>
+            <option value="second">1 sec detail</option>
+          </select>
+          <span id="newNetFilterHint">Direction is active only for Firewall evidence.</span>
+        </div>
+        <div class="network-time-slider" id="newNetTimeSliderPanel">
+          <div class="time-slider-head">
+            <strong>time</strong>
+            <span id="newNetTimeSliderLabel">select a time range</span>
+          </div>
+          <div class="time-slider-track">
+            <input id="newNetTimeCursorRange" type="range" min="0" max="0" value="0" step="1" aria-label="Selected time">
+          </div>
+          <div class="time-slider-values">
+            <span id="newNetTimeStartLabel">start</span>
+            <span id="newNetTimeEndLabel">end</span>
+          </div>
+        </div>
+        <div class="network-evidence-new-grid">
+          <section class="panel new-core-timeline">
+            <div class="panel-head">
+              <h3>Core 1. Timeline</h3>
+              <span id="newNetTimeStatus">click a spike to filter all views</span>
+            </div>
+            <svg id="newNetTimeline" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Core 2. IP x IP Heatmap</h3>
+              <span id="newNetIpStatus">click an IP-pair cell to filter dependent views</span>
+            </div>
+            <svg id="newNetIpHeatmap" class="chart fw-chart" role="img"></svg>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h3>Core 3. Time x Port Scatterplot</h3>
+              <span id="newNetPortStatus">click one or more points to filter signatures and parallel coordinates</span>
+            </div>
+            <svg id="newNetTimePortScatter" class="chart fw-chart" role="img"></svg>
+            <div id="newNetPortTooltip" class="selection-tooltip" hidden></div>
+          </section>
+          <section class="panel ids-signature-panel">
+            <div class="panel-head">
+              <h3>Core 4. Top IDS Signatures categorized by Priority</h3>
+              <span>click signature to filter IP, port and detail views</span>
+            </div>
+            <div id="newNetIdsSignatures" class="signature-bars"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h3>5. Parallel Coordinates</h3>
+              <span>source, IP, port and evidence type</span>
+            </div>
+            <svg id="newNetParallelCoordinates" class="chart fw-chart parallel-chart" role="img"></svg>
+          </section>
+          <section class="panel evidence-composition-panel">
+            <div class="panel-head">
+              <h3>6. Evidence Composition Mini View</h3>
+              <span>Firewall actions + IDS priorities + PCAP protocols</span>
+            </div>
+            <div id="newNetEvidenceComposition" class="evidence-composition"></div>
+          </section>
+          <section class="network-detail-status">
+            <div id="newNetClickDetail" class="click-detail-status"></div>
+          </section>
+        </div>
+        <aside id="newNetDetailDrawer" class="detail-drawer" aria-hidden="true">
+          <div class="detail-drawer-head">
+            <div>
+              <strong id="newNetDrawerTitle">Evidence details</strong>
+              <span id="newNetDrawerSubtitle">selected evidence rows</span>
+            </div>
+            <button id="newNetDrawerClose" type="button" aria-label="Close details">Close</button>
+          </div>
+          <div id="newNetDrawerBody" class="detail-drawer-body"></div>
+        </aside>
       </section>
 
       <section class="band view" id="firewallView">
@@ -88,8 +269,8 @@
             <div class="pivot-buttons">
               <button type="button" class="pivot-btn" data-target-view="ids">Pivot to IDS</button>
               <button type="button" class="pivot-btn" data-target-view="pcap">Pivot to PCAP</button>
-              <button type="button" class="pivot-btn" data-target-view="windowsLogs">Pivot to Logs</button>
-              <button type="button" class="pivot-btn" data-target-view="nessus">Pivot to Nessus</button>
+              <button type="button" class="pivot-btn" data-target-view="windowsLogs">Pivot to Identity</button>
+              <button type="button" class="pivot-btn" data-target-view="nessus">Pivot to Risk</button>
               <button type="button" class="pivot-btn secondary" data-target-view="investigation">Raw evidence</button>
             </div>
           </section>
@@ -205,9 +386,10 @@
 
       <section class="band view" id="windowsLogsView">
         <div class="section-head">
-          <h2>WindowsLogs</h2>
-          <p>Windows investigation follows time, process, command and identity context. Process views are populated only when process creation fields exist in the log source.</p>
+          <h2>Host &amp; Identity</h2>
+          <p>Windows Security evidence links hosts, accounts, IP addresses, workstations, EventIDs and domain activity. Process views are populated only when process creation fields exist in the log source.</p>
         </div>
+        <div id="hostIdentityContext" class="linked-context"></div>
         <div class="windows-grid">
           <section class="panel win-timeline">
             <div class="panel-head">
@@ -216,20 +398,19 @@
             </div>
             <svg id="winEventTimeline" class="chart fw-chart" role="img"></svg>
           </section>
-          <section class="panel win-process-tree">
+          <section class="panel win-accounts">
             <div class="panel-head">
-              <h3>2. Process Tree / Parent-Child Process Relationships</h3>
-              <span>network graph</span>
+              <h3>2. Top Accounts in Windows Events</h3>
+              <span>account activity</span>
             </div>
-            <svg id="winProcessTree" class="chart fw-chart" role="img"></svg>
+            <div id="winAccountBars" class="bars"></div>
           </section>
-          <section class="panel win-processes">
+          <section class="panel win-source-ips">
             <div class="panel-head">
-              <h3>3. Top Processes + Suspicious Commands</h3>
-              <span>bar chart + detail</span>
+              <h3>3. Top IPs in Authentication Evidence</h3>
+              <span>logon / Kerberos sources</span>
             </div>
-            <div id="winProcessBars" class="bars"></div>
-            <div id="winCommandTable" class="detail-table process-detail"></div>
+            <div id="winIpBars" class="bars"></div>
           </section>
           <section class="panel win-user-host">
             <div class="panel-head">
@@ -243,8 +424,8 @@
 
       <section class="band view" id="nessusView">
         <div class="section-head">
-          <h2>Nessus</h2>
-          <p>Nessus reasoning workflow for research-oriented visual analytics: exposure overview, host-service risk structure, repeated vulnerability patterns and multivariate vulnerability correlation.</p>
+          <h2>Risk &amp; Exposure</h2>
+          <p>Nessus-based exposure reasoning workflow: severity overview, host-service risk structure, repeated CVE/plugin patterns and multivariate vulnerability correlation.</p>
         </div>
         <div class="reasoning-strip">
           <div><strong>Exposure reasoning</strong><span>Which severity classes dominate the vulnerability surface?</span></div>
@@ -252,6 +433,7 @@
           <div><strong>Pattern recognition</strong><span>Which CVE/plugin findings repeat across assets?</span></div>
           <div><strong>Multivariate reasoning</strong><span>How do host, service, severity, CVE/plugin and exploit evidence combine?</span></div>
         </div>
+        <div id="riskExposureContext" class="linked-context"></div>
         <div class="nessus-grid">
           <section class="panel nessus-severity">
             <div class="panel-head">
@@ -432,7 +614,7 @@
           </div>
           <div class="panel">
             <div class="panel-head">
-              <h3>Nessus risk</h3>
+              <h3>Risk &amp; Exposure</h3>
               <span>exposure</span>
             </div>
             <div id="riskMatrix" class="risk-matrix"></div>
@@ -449,7 +631,7 @@
           <div class="panel">
             <div class="panel-head">
               <h3>Vulnerable hosts</h3>
-              <span>Nessus</span>
+              <span>Nessus evidence</span>
             </div>
             <div id="nessusHosts" class="bars"></div>
           </div>
@@ -465,6 +647,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=20260526-7"></script>
+    <script src="app.js?v=20260609-1"></script>
   </body>
 </html>
