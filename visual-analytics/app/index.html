@@ -30,7 +30,6 @@
           </select>
         </div>
         <div class="tabs" id="tabs" aria-label="Analytics sections">
-          <button class="tab" data-view="combination">Network Evidence</button>
           <button class="tab active" data-view="networkEvidenceNew">Network Evidence New</button>
           <button class="tab" data-view="firewall">Firewall</button>
           <button class="tab" data-view="ids">IDS</button>
@@ -44,7 +43,7 @@
         </div>
       </section>
 
-      <section class="band view" id="combinationView">
+      <section class="band view" id="combinationView" hidden>
         <div class="section-head">
           <h2>Network Evidence</h2>
           <p>Combined Firewall + IDS + PCAP evidence answers what happened in the network, who communicated with whom, and which ports, signatures and packets support the activity.</p>
@@ -115,16 +114,6 @@
       </section>
 
       <section class="band view active" id="networkEvidenceNewView">
-        <div class="section-head">
-          <h2>Network Evidence New</h2>
-          <p>Copy of Network Evidence with one compact supporting view. Core views preserve temporal, relational, pattern-recognition and multivariate reasoning; the mini view summarizes Firewall actions, IDS priorities and PCAP protocol composition.</p>
-        </div>
-        <div class="reasoning-strip">
-          <div><strong>Core reasoning</strong><span>Timeline, IP matrix, time-port scatterplot and parallel coordinates remain the main analytical path.</span></div>
-          <div><strong>Composition context</strong><span>A small summary view shows which evidence classes dominate without turning metrics into the main dashboard.</span></div>
-          <div><strong>Overview to detail</strong><span>The analyst starts with time and IP structure, then uses composition to justify the observed pattern.</span></div>
-          <div><strong>Cross-source evidence</strong><span>Firewall, IDS and PCAP are compared as complementary layers rather than isolated dashboards.</span></div>
-        </div>
         <div class="network-evidence-controls">
           <label for="newNetEvidenceSourceSelect">Evidence Source</label>
           <select id="newNetEvidenceSourceSelect">
