@@ -30,9 +30,8 @@
           </select>
         </div>
         <div class="tabs" id="tabs" aria-label="Analytics sections">
-          <button class="tab active" data-view="investigation">Investigation</button>
           <button class="tab" data-view="combination">Network Evidence</button>
-          <button class="tab" data-view="networkEvidenceNew">Network Evidence New</button>
+          <button class="tab active" data-view="networkEvidenceNew">Network Evidence New</button>
           <button class="tab" data-view="firewall">Firewall</button>
           <button class="tab" data-view="ids">IDS</button>
           <button class="tab" data-view="pcap">PCAP</button>
@@ -115,7 +114,7 @@
         </div>
       </section>
 
-      <section class="band view" id="networkEvidenceNewView">
+      <section class="band view active" id="networkEvidenceNewView">
         <div class="section-head">
           <h2>Network Evidence New</h2>
           <p>Copy of Network Evidence with one compact supporting view. Core views preserve temporal, relational, pattern-recognition and multivariate reasoning; the mini view summarizes Firewall actions, IDS priorities and PCAP protocol composition.</p>
@@ -278,7 +277,6 @@
               <button type="button" class="pivot-btn" data-target-view="pcap">Pivot to PCAP</button>
               <button type="button" class="pivot-btn" data-target-view="windowsLogs">Pivot to Identity</button>
               <button type="button" class="pivot-btn" data-target-view="nessus">Pivot to Risk</button>
-              <button type="button" class="pivot-btn secondary" data-target-view="investigation">Raw evidence</button>
             </div>
           </section>
           <section class="panel fw-heatmap">
@@ -509,7 +507,7 @@
         </div>
       </section>
 
-      <section class="band view active" id="investigationView">
+      <section class="band view" id="investigationView" hidden>
         <div class="investigation-shell">
           <div class="investigation-title">
             <h2>Investigation of traffic patterns</h2>
