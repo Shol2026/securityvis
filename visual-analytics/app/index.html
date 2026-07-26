@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>VA Security Visual Analytics</title>
-    <link rel="stylesheet" href="styles.css?v=20260609-1">
+    <link rel="stylesheet" href="styles.css?v=20260709-1">
   </head>
   <body>
     <header class="topbar">
@@ -149,39 +149,46 @@
             <option value="minute">1 min detail</option>
             <option value="second">1 sec detail</option>
           </select>
-          <span id="newNetFilterHint">Direction is active only for Firewall evidence.</span>
-        </div>
-        <div class="network-time-slider" id="newNetTimeSliderPanel">
-          <div class="time-slider-head">
-            <strong>time</strong>
-            <span id="newNetTimeSliderLabel">select a time range</span>
-          </div>
-          <div class="time-slider-track">
-            <input id="newNetTimeCursorRange" type="range" min="0" max="0" value="0" step="1" aria-label="Selected time">
-          </div>
-          <div class="time-slider-values">
-            <span id="newNetTimeStartLabel">start</span>
-            <span id="newNetTimeEndLabel">end</span>
+          <label for="newNetSourceIpSelect">Source IP</label>
+          <select id="newNetSourceIpSelect">
+            <option value="all">All</option>
+          </select>
+          <label for="newNetDestinationIpSelect">Destination IP</label>
+          <select id="newNetDestinationIpSelect">
+            <option value="all">All</option>
+          </select>
+          <div class="network-time-slider" id="newNetTimeSliderPanel">
+            <div class="time-slider-head">
+              <strong>time</strong>
+              <span id="newNetTimeSliderLabel">select a time range</span>
+            </div>
+            <div class="time-slider-track">
+              <input id="newNetTimeCursorRange" type="range" min="0" max="0" value="0" step="1" aria-label="Selected time">
+            </div>
+            <div class="time-slider-values">
+              <span id="newNetTimeStartLabel">start</span>
+              <span id="newNetTimeEndLabel">end</span>
+            </div>
           </div>
         </div>
         <div class="network-evidence-new-grid">
           <section class="panel new-core-timeline">
             <div class="panel-head">
-              <h3>Core 1. Timeline</h3>
+              <h3>The number of connections by time</h3>
               <span id="newNetTimeStatus">click a spike to filter all views</span>
             </div>
             <svg id="newNetTimeline" class="chart fw-chart" role="img"></svg>
           </section>
           <section class="panel">
             <div class="panel-head">
-              <h3>Core 2. IP x IP Heatmap</h3>
+              <h3>Source IP by Destination IP</h3>
               <span id="newNetIpStatus">click an IP-pair cell to filter dependent views</span>
             </div>
             <svg id="newNetIpHeatmap" class="chart fw-chart" role="img"></svg>
           </section>
           <section class="panel">
             <div class="panel-head">
-              <h3>Core 3. Time x Port Scatterplot</h3>
+              <h3>Port activity by time</h3>
               <span id="newNetPortStatus">click one or more points to filter signatures and parallel coordinates</span>
             </div>
             <svg id="newNetTimePortScatter" class="chart fw-chart" role="img"></svg>
@@ -189,7 +196,7 @@
           </section>
           <section class="panel ids-signature-panel">
             <div class="panel-head">
-              <h3>Core 4. Top IDS Signatures categorized by Priority</h3>
+              <h3>The alerts categorized by priority</h3>
               <span>click signature to filter IP, port and detail views</span>
             </div>
             <div id="newNetIdsSignatures" class="signature-bars"></div>
@@ -390,31 +397,49 @@
           <p>Windows Security evidence links hosts, accounts, IP addresses, workstations, EventIDs and domain activity. Process views are populated only when process creation fields exist in the log source.</p>
         </div>
         <div id="hostIdentityContext" class="linked-context"></div>
+        <div class="host-identity-controls">
+          <label for="hostEventIdSelect">Event ID</label>
+          <select id="hostEventIdSelect">
+            <option value="all">All</option>
+          </select>
+          <label for="hostAccountSelect">Accounts</label>
+          <select id="hostAccountSelect">
+            <option value="all">All</option>
+          </select>
+          <label for="hostIpSelect">IPs</label>
+          <select id="hostIpSelect">
+            <option value="all">All</option>
+          </select>
+          <label for="hostUserSelect">User</label>
+          <select id="hostUserSelect">
+            <option value="all">All</option>
+          </select>
+        </div>
         <div class="windows-grid">
           <section class="panel win-timeline">
             <div class="panel-head">
-              <h3>1. Timeline Windows Events by Event ID / Event Type</h3>
+              <h3>The number of event type by time</h3>
               <span>EventID by time</span>
             </div>
             <svg id="winEventTimeline" class="chart fw-chart" role="img"></svg>
           </section>
           <section class="panel win-accounts">
             <div class="panel-head">
-              <h3>2. Top Accounts in Windows Events</h3>
+              <h3>Top accounts in events</h3>
               <span>account activity</span>
             </div>
             <div id="winAccountBars" class="bars"></div>
           </section>
           <section class="panel win-source-ips">
             <div class="panel-head">
-              <h3>3. Top IPs in Authentication Evidence</h3>
+              <h3>Top IPs in authentication</h3>
               <span>logon / Kerberos sources</span>
             </div>
             <div id="winIpBars" class="bars"></div>
           </section>
           <section class="panel win-user-host">
             <div class="panel-head">
-              <h3>4. User / Host Activity Matrix</h3>
+              <h3>User activity by host</h3>
               <span>User x Host heatmap</span>
             </div>
             <svg id="winUserHostHeat" class="chart fw-chart" role="img"></svg>
@@ -427,38 +452,56 @@
           <h2>Risk &amp; Exposure</h2>
           <p>Nessus-based exposure reasoning workflow: severity overview, host-service risk structure, repeated CVE/plugin patterns and multivariate vulnerability correlation.</p>
         </div>
+        <div id="riskExposureContext" class="linked-context"></div>
         <div class="reasoning-strip">
           <div><strong>Exposure reasoning</strong><span>Which severity classes dominate the vulnerability surface?</span></div>
           <div><strong>Asset-service reasoning</strong><span>Which hosts concentrate risk on specific services or ports?</span></div>
           <div><strong>Pattern recognition</strong><span>Which CVE/plugin findings repeat across assets?</span></div>
           <div><strong>Multivariate reasoning</strong><span>How do host, service, severity, CVE/plugin and exploit evidence combine?</span></div>
         </div>
-        <div id="riskExposureContext" class="linked-context"></div>
+        <div class="risk-exposure-controls">
+          <label for="riskSeveritySelect">Severity</label>
+          <select id="riskSeveritySelect">
+            <option value="all">All</option>
+          </select>
+          <label for="riskHostSelect">Host</label>
+          <select id="riskHostSelect">
+            <option value="all">All</option>
+          </select>
+          <label for="riskServicePortSelect">Service/port</label>
+          <select id="riskServicePortSelect">
+            <option value="all">All</option>
+          </select>
+          <label for="riskCvePluginSelect">CVE/plugin</label>
+          <select id="riskCvePluginSelect">
+            <option value="all">All</option>
+          </select>
+        </div>
         <div class="nessus-grid">
           <section class="panel nessus-severity">
             <div class="panel-head">
-              <h3>1. Overview: Vulnerability Exposure by Severity</h3>
+              <h3>Vulnerability by severity</h3>
               <span>treemap overview</span>
             </div>
             <svg id="nessusSeverityTreemap" class="chart fw-chart" role="img"></svg>
           </section>
           <section class="panel nessus-hosts">
             <div class="panel-head">
-              <h3>2. Host x Service / Port Heatmap</h3>
+              <h3>Service/port activity by host</h3>
               <span>asset-service reasoning</span>
             </div>
             <svg id="nessusHostServiceHeat" class="chart fw-chart" role="img"></svg>
           </section>
           <section class="panel nessus-cve">
             <div class="panel-head">
-              <h3>3. Host x CVE / Plugin Scatterplot</h3>
+              <h3>Host activity by plugin</h3>
               <span>pattern recognition</span>
             </div>
             <svg id="nessusHostPluginScatter" class="chart fw-chart" role="img"></svg>
           </section>
           <section class="panel nessus-parallel">
             <div class="panel-head">
-              <h3>4. Parallel Coordinates for Vulnerability Findings</h3>
+              <h3>Vulnerability levels of hosts</h3>
               <span>multivariate reasoning</span>
             </div>
             <svg id="nessusParallelCoordinates" class="chart fw-chart parallel-chart" role="img"></svg>
@@ -547,7 +590,10 @@
                 <h3>Raw firewall evidence drill-down</h3>
                 <p>Official <code>FOL/*/firewall/raw/*.txt</code> files are not loaded into the dashboard. They are scanned only when you request evidence for selected filters.</p>
               </div>
-              <button id="rawLookupBtn" type="button">Fetch raw evidence</button>
+              <div class="raw-actions">
+                <button id="rawLookupBtn" type="button">Fetch raw evidence</button>
+                <button id="rawCloseBtn" type="button">Close</button>
+              </div>
             </div>
             <pre id="rawEvidence">Select source/destination/port filters, then fetch raw evidence.</pre>
           </section>
@@ -647,6 +693,6 @@
       </section>
     </main>
 
-    <script src="app.js?v=20260609-1"></script>
+    <script src="app.js?v=20260709-1"></script>
   </body>
 </html>

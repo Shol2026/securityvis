@@ -9,8 +9,22 @@ const state = {
   networkEvidenceTime: null,
   networkEvidenceTimeRange: null,
   networkEvidenceIpPair: null,
+  networkEvidenceIpPairs: [],
+  networkEvidenceSourceIp: "all",
+  networkEvidenceDestinationIp: "all",
   networkEvidencePortSelections: [],
+  networkEvidenceDetailPayload: null,
   hostIdentityTimeRange: null,
+  hostIdentityEventId: "all",
+  hostIdentityAccounts: [],
+  hostIdentityIps: [],
+  hostIdentityUser: "all",
+  riskExposureSeverities: [],
+  riskExposureServicePort: "all",
+  riskExposureCvePlugin: "all",
+  riskExposureHosts: [],
+  riskExposureHostServices: [],
+  riskExposureHostFindings: [],
   investigationContext: {
     ips: [],
     source: "Network Evidence",
@@ -84,6 +98,7 @@ function bindControls() {
   });
 
   document.getElementById("rawLookupBtn")?.addEventListener("click", fetchRawEvidence);
+  document.getElementById("rawCloseBtn")?.addEventListener("click", closeRawEvidence);
   document.querySelectorAll(".pivot-btn").forEach((button) => {
     button.addEventListener("click", () => switchView(button.dataset.targetView));
   });
@@ -112,11 +127,26 @@ function bindControls() {
       renderNetworkEvidenceNewDashboard();
     });
   }
+  [
+    ["newNetSourceIpSelect", "networkEvidenceSourceIp"],
+    ["newNetDestinationIpSelect", "networkEvidenceDestinationIp"],
+  ].forEach(([id, key]) => {
+    document.getElementById(id)?.addEventListener("change", (event) => {
+      state[key] = event.target.value || "all";
+      state.networkEvidenceIpPair = null;
+      state.networkEvidenceIpPairs = [];
+      state.networkEvidencePortSelections = [];
+      updateInvestigationContextFromNetworkIpFilters();
+      renderNetworkEvidenceNewDashboard();
+    });
+  });
   const newNetTimeGranularitySelect = document.getElementById("newNetTimeGranularitySelect");
   if (newNetTimeGranularitySelect) {
     newNetTimeGranularitySelect.addEventListener("change", (event) => {
-      state.networkEvidenceTimeGranularity = event.target.value || "hour";
-      state.networkEvidenceTime = null;
+      const previousTime = state.networkEvidenceTimeRange?.start || state.networkEvidenceTime;
+      const nextGranularity = event.target.value || "hour";
+      state.networkEvidenceTimeGranularity = nextGranularity;
+      state.networkEvidenceTime = previousTime ? timeBucketKey(previousTime, nextGranularity) : null;
       state.networkEvidenceTimeRange = null;
       state.networkEvidencePortSelections = [];
       renderNetworkEvidenceNewDashboard();
@@ -127,15 +157,63 @@ function bindControls() {
     slider?.addEventListener("input", applyNewNetworkTimeSlider);
     slider?.addEventListener("change", applyNewNetworkTimeSlider);
   });
+  document.getElementById("hostEventIdSelect")?.addEventListener("change", (event) => {
+    state.hostIdentityEventId = event.target.value || "all";
+    renderWindowsLogsDashboard();
+  });
+  document.getElementById("hostAccountSelect")?.addEventListener("change", (event) => {
+    const value = event.target.value || "all";
+    state.hostIdentityAccounts = value === "all" ? [] : [value];
+    renderWindowsLogsDashboard();
+  });
+  document.getElementById("hostIpSelect")?.addEventListener("change", (event) => {
+    const value = stripEndpoint(event.target.value || "");
+    state.hostIdentityIps = !value || value === "all" ? [] : [value];
+    renderAll();
+  });
+  document.getElementById("hostUserSelect")?.addEventListener("change", (event) => {
+    state.hostIdentityUser = event.target.value || "all";
+    renderWindowsLogsDashboard();
+  });
+  document.getElementById("riskSeveritySelect")?.addEventListener("change", (event) => {
+    const value = event.target.value || "all";
+    state.riskExposureSeverities = value === "all" ? [] : [value];
+    state.riskExposureHosts = [];
+    state.riskExposureHostServices = [];
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+  document.getElementById("riskHostSelect")?.addEventListener("change", (event) => {
+    const value = event.target.value || "all";
+    state.riskExposureHosts = value === "all" ? [] : [value];
+    state.riskExposureHostServices = [];
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+  document.getElementById("riskServicePortSelect")?.addEventListener("change", (event) => {
+    state.riskExposureServicePort = event.target.value || "all";
+    state.riskExposureHostServices = [];
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+  document.getElementById("riskCvePluginSelect")?.addEventListener("change", (event) => {
+    state.riskExposureCvePlugin = event.target.value || "all";
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
   document.getElementById("newNetTimeStatus")?.addEventListener("click", () => {
     state.networkEvidenceTime = null;
     state.networkEvidenceTimeRange = null;
     state.networkEvidenceIpPair = null;
+    state.networkEvidenceIpPairs = [];
     setInvestigationContext([], "", "Network Evidence");
     renderNetworkEvidenceNewDashboard();
   });
   document.getElementById("newNetIpStatus")?.addEventListener("click", () => {
     state.networkEvidenceIpPair = null;
+    state.networkEvidenceIpPairs = [];
+    state.networkEvidenceSourceIp = "all";
+    state.networkEvidenceDestinationIp = "all";
     setInvestigationContext([], "", "Network Evidence");
     renderNetworkEvidenceNewDashboard();
   });
@@ -147,6 +225,15 @@ function bindControls() {
     event.currentTarget.hidden = true;
   });
   document.getElementById("newNetDrawerClose")?.addEventListener("click", closeNewNetworkDetailDrawer);
+  document.getElementById("newNetClickDetail")?.addEventListener("click", (event) => {
+    const button = event.target.closest("#newNetOpenDrawerBtn");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const payload = state.networkEvidenceDetailPayload;
+    if (!payload) return;
+    openNewNetworkDetailDrawer(payload.title, payload.countLabel, payload.evidenceCounts, payload.rows);
+  });
   window.addEventListener("resize", debounce(renderAll, 150));
 }
 
@@ -179,6 +266,60 @@ function syncNetworkEvidenceControls() {
       ? "Direction filters Firewall evidence."
       : "Direction is active only when Evidence Source is Firewall.";
   }
+  syncNetworkEvidenceIpSelects();
+}
+
+function syncNetworkEvidenceIpSelects() {
+  const sourceSelect = document.getElementById("newNetSourceIpSelect");
+  const destinationSelect = document.getElementById("newNetDestinationIpSelect");
+  if (!sourceSelect || !destinationSelect || !state.data) return;
+  const sourceLayer = state.networkEvidenceSource || "all";
+  const direction = sourceLayer === "firewall" ? state.networkEvidenceDirection : "all";
+  const rows = buildNetworkEvidenceEventRows(sourceLayer, direction);
+  const sourceIps = mergeIpOptions(topIpOptions(rows, "source", 500), idsIpOptions("source"));
+  const destinationIps = mergeIpOptions(topIpOptions(rows, "target", 500), idsIpOptions("destination"));
+  if (state.networkEvidenceSourceIp !== "all" && !sourceIps.includes(state.networkEvidenceSourceIp)) {
+    state.networkEvidenceSourceIp = "all";
+  }
+  if (state.networkEvidenceDestinationIp !== "all" && !destinationIps.includes(state.networkEvidenceDestinationIp)) {
+    state.networkEvidenceDestinationIp = "all";
+  }
+  fillSelectOptions(sourceSelect, sourceIps, state.networkEvidenceSourceIp);
+  fillSelectOptions(destinationSelect, destinationIps, state.networkEvidenceDestinationIp);
+}
+
+function topIpOptions(rows, field, limit = 120) {
+  const counts = new Map();
+  (rows || []).forEach((row) => {
+    const ip = stripEndpoint(row[field] || "");
+    if (!ip || ip === "multiple" || ip === "IDS multiple") return;
+    counts.set(ip, (counts.get(ip) || 0) + Number(row.value || 1));
+  });
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([ip]) => ip);
+}
+
+function idsIpOptions(field) {
+  const values = new Set();
+  (state.data.ids?.sample_alerts || []).forEach((alert) => {
+    const ip = stripEndpoint(alert[field] || "");
+    if (ip) values.add(ip);
+  });
+  return [...values].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+}
+
+function mergeIpOptions(primary, secondary) {
+  return [...new Set([...(primary || []), ...(secondary || [])])];
+}
+
+function fillSelectOptions(select, values, selectedValue) {
+  select.innerHTML = [
+    `<option value="all">All</option>`,
+    ...values.map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`),
+  ].join("");
+  select.value = selectedValue || "all";
 }
 
 function renderAll() {
@@ -239,26 +380,36 @@ function renderNetworkEvidenceNewDashboard() {
   const selectedTime = state.networkEvidenceTime;
   const selectedTimeRange = state.networkEvidenceTimeRange;
   const timeGranularity = state.networkEvidenceTimeGranularity || "hour";
-  const selectedIpPair = state.networkEvidenceIpPair;
+  const selectedIpPairs = selectedNetworkEvidenceIpPairs();
   const selectedPortRows = state.networkEvidencePortSelections || [];
-  const timelineRows = buildNetworkEvidenceTimelineRows(sourceLayer, direction, timeGranularity, selectedSignature);
+  const timelineRows = buildNetworkEvidenceTimelineRowsForGranularity(sourceLayer, direction, timeGranularity);
+  const aggregateTimelineRows = buildNetworkEvidenceFullAggregateTimelineRows(sourceLayer, timeGranularity);
   const timelineLimit = timeGranularity === "day" ? 30 : timeGranularity === "second" ? 220 : timeGranularity === "minute" ? 160 : timeGranularity === "ten" ? 140 : 90;
   let visibleTimePorts = selectedSignature ? buildIdsSignatureTimePorts(selectedSignature) : combo.timePorts;
   if (selectedTimeRange) visibleTimePorts = buildNetworkEvidenceRowsForTimeRange(sourceLayer, direction, selectedTimeRange, selectedSignature);
   else if (selectedTime) visibleTimePorts = buildNetworkEvidenceRowsForHour(sourceLayer, direction, selectedTime, selectedSignature);
-  if (selectedIpPair) visibleTimePorts = filterRowsByIpPair(visibleTimePorts, selectedIpPair);
+  const aggregateDetailGap = !selectedSignature
+    && (selectedTime || selectedTimeRange)
+    && !visibleTimePorts.length
+    && hasFullAggregateActivity(aggregateTimelineRows, selectedTime, selectedTimeRange, timeGranularity);
+  visibleTimePorts = filterRowsByNetworkEvidenceIpFilters(visibleTimePorts);
+  const heatmapContextRows = visibleTimePorts;
+  if (selectedIpPairs.length) visibleTimePorts = filterRowsByIpPairs(visibleTimePorts, selectedIpPairs);
   let visibleIpPairs = selectedSignature ? buildIdsSignatureIpPairs(selectedSignature, selectedTime) : combo.ipPairs;
-  if ((selectedTime || selectedTimeRange) && !selectedSignature) visibleIpPairs = buildIpPairsFromEvidenceRows(visibleTimePorts);
-  if ((selectedTime || selectedTimeRange) && selectedSignature) visibleIpPairs = buildIpPairsFromEvidenceRows(visibleTimePorts);
+  if (selectedTime || selectedTimeRange || selectedSignature || networkEvidenceIpFiltersActive()) visibleIpPairs = buildIpPairsFromEvidenceRows(heatmapContextRows);
   const visibleIpPairsForHeatmap = visibleIpPairs;
-  const visibleParallelRows = selectedTime || selectedTimeRange ? buildParallelRowsFromEvidenceRows(visibleTimePorts) : combo.parallelRows;
+  const visibleParallelRows = selectedTime || selectedTimeRange || selectedSignature || networkEvidenceIpFiltersActive()
+    ? buildParallelRowsFromEvidenceRows(visibleTimePorts)
+    : combo.parallelRows;
   const portFilteredRows = selectedPortRows.length ? filterRowsByPortSelections(visibleTimePorts, selectedPortRows) : visibleTimePorts;
-  const dependentParallelRows = selectedPortRows.length || selectedIpPair
+  const dependentParallelRows = selectedPortRows.length || selectedIpPairs.length || networkEvidenceIpFiltersActive()
     ? buildParallelRowsFromEvidenceRows(portFilteredRows)
     : visibleParallelRows;
   drawTimeline(document.getElementById("newNetTimeline"), {
     rows: timelineRows,
     limit: timelineLimit,
+    showYAxis: true,
+    yAxisLabel: timeGranularity === "day" || timeGranularity === "hour" ? "full counts" : "detail counts",
     series: [
       { key: "Firewall", color: colors.blue },
       { key: "IDS", color: colors.red },
@@ -268,7 +419,18 @@ function renderNetworkEvidenceNewDashboard() {
   drawMatrixHeatmap(
     document.getElementById("newNetIpHeatmap"),
     visibleIpPairsForHeatmap,
-    { rowLimit: 12, colLimit: 10, color: "red" }
+    {
+      rowLimit: 12,
+      colLimit: 10,
+      color: "red",
+      rotateColumnLabels: true,
+      fullColumnLabels: true,
+      topOffset: 94,
+      columnLabelGap: 18,
+      selectedPairs: selectedIpPairs,
+      valueLabelClass: "heat-value-small",
+      onCellClick: toggleNetworkEvidenceIpPair,
+    }
   );
   drawCombinationTimePortScatter(document.getElementById("newNetTimePortScatter"), visibleTimePorts);
   drawCombinationParallelCoordinates(document.getElementById("newNetParallelCoordinates"), dependentParallelRows);
@@ -281,12 +443,14 @@ function renderNetworkEvidenceNewDashboard() {
   const visibleCombo = { ...combo, timeline: timelineRows.slice(0, timelineLimit), ipPairs: visibleIpPairsForHeatmap, timePorts: visibleTimePorts, parallelRows: dependentParallelRows };
   bindNetworkEvidenceNewClicks(visibleCombo);
   renderNetworkEvidenceNewDetail(
-    selectedSignature
+    aggregateDetailGap
+      ? { type: "aggregate_gap", time: selectedTime, range: selectedTimeRange, granularity: timeGranularity }
+    : selectedSignature
       ? { type: "signature", signature: selectedSignature }
       : selectedPortRows.length
         ? { type: "port_selections", selections: selectedPortRows }
-      : selectedIpPair
-        ? { type: "ip_pair", source: selectedIpPair.source, target: selectedIpPair.target }
+      : selectedIpPairs.length
+        ? { type: "ip_pairs", pairs: selectedIpPairs }
       : selectedTimeRange
         ? { type: "time_range", range: selectedTimeRange }
       : selectedTime
@@ -298,41 +462,85 @@ function renderNetworkEvidenceNewDashboard() {
 
 function renderNessusDashboard() {
   const nessus = state.data.nessus;
-  const ips = selectedInvestigationIps();
-  const details = filterDetailsByInvestigationIps(nessus.details || [], ["host", "ip_address"]);
-  renderLinkedContext("riskExposureContext", "Risk & Exposure");
-  drawNessusSeverityTreemap(document.getElementById("nessusSeverityTreemap"), ips.length ? buildRiskCountsFromNessusDetails(details) : nessus.risk || []);
+  if (networkEvidenceAggregateDetailGapActive()) {
+    renderRiskExposureContext();
+    renderAggregateGapRiskEmptyState();
+    return;
+  }
+  const ips = selectedRiskExposureIps();
+  const baseDetails = filterDetailsByIps(nessus.details || [], ["host", "ip_address"], ips);
+  syncRiskExposureControls(baseDetails);
+  const severityDetails = filterNessusDetailsBySelectedSeverity(baseDetails);
+  const servicePortDetails = filterNessusDetailsBySelectedServicePort(severityDetails);
+  const cvePluginDetails = filterNessusDetailsBySelectedCvePlugin(servicePortDetails);
+  syncRiskExposureHostSelection(cvePluginDetails);
+  const hostFilteredDetails = filterNessusDetailsBySelectedHosts(cvePluginDetails);
+  syncRiskExposureHostServiceSelection(hostFilteredDetails);
+  const details = filterNessusDetailsBySelectedHostService(hostFilteredDetails);
+  syncRiskExposureHostFindingSelection(details);
+  const parallelDetails = filterNessusDetailsBySelectedHostFinding(details);
+  const hostServiceCells = buildNessusHostServiceCells(cvePluginDetails);
+  renderRiskExposureContext();
+  drawNessusSeverityTreemap(document.getElementById("nessusSeverityTreemap"), buildRiskCountsFromNessusDetails(baseDetails));
   drawMatrixHeatmap(
     document.getElementById("nessusHostServiceHeat"),
-    buildNessusHostServiceCells(details),
-    { rowLimit: 10, colLimit: 10, color: "blue" }
+    hostServiceCells,
+    {
+      rowLimit: 10,
+      colLimit: 10,
+      color: "blue",
+      rotateColumnLabels: true,
+      columnLabelClass: "risk-service-label",
+      columnLabelGap: 42,
+      topOffset: 128,
+      selectedRows: selectedRiskExposureHosts(),
+      onRowClick: toggleRiskExposureHost,
+      selectedCellKeys: selectedRiskExposureHostServiceKeys(),
+      onCellClick: toggleRiskExposureHostServiceAndHost,
+    }
   );
   drawNessusHostPluginScatter(document.getElementById("nessusHostPluginScatter"), details, ips.length ? [] : nessus.top_cve_plugin || nessus.top_plugins || []);
-  drawNessusParallelCoordinates(document.getElementById("nessusParallelCoordinates"), details);
+  drawNessusParallelCoordinates(document.getElementById("nessusParallelCoordinates"), parallelDetails);
 }
 
 function renderWindowsLogsDashboard() {
   const sec = state.data.security;
+  if (networkEvidenceAggregateDetailGapActive()) {
+    renderHostIdentityContext();
+    renderAggregateGapHostEmptyState();
+    return;
+  }
+  syncHostIdentityControls(sec);
   const ips = selectedInvestigationIps();
   const timeScopedRows = getSecurityUserHostRowsForHostContext(sec);
   const userHostRows = filterDetailsByInvestigationIps(timeScopedRows, ["host"]);
   const scopedUserHostRows = userHostRows.length || ips.length ? userHostRows : timeScopedRows;
-  const eventSeries = (sec.event_ids || []).slice(0, 6).map((item, index) => ({
+  const eventFilteredRows = filterHostRowsBySelectedEventId(scopedUserHostRows);
+  const accountFilteredRows = filterHostRowsBySelectedAccount(eventFilteredRows);
+  const userFilteredRows = filterHostRowsBySelectedUser(accountFilteredRows);
+  const selectedEventId = selectedHostIdentityEventId();
+  const baseEventIds = selectedEventId === "all"
+    ? (sec.event_ids || []).slice(0, 6)
+    : [{ key: selectedEventId }];
+  const eventSeries = baseEventIds.map((item, index) => ({
     key: item.key,
     color: [colors.teal, colors.blue, colors.amber, colors.red, colors.violet, colors.gray][index],
   }));
   drawTimeline(document.getElementById("winEventTimeline"), {
     rows: sec.timeline || [],
+    showYAxis: true,
+    yAxisLabel: "events",
     series: eventSeries,
   });
   bindHostIdentityTimelineSelection(document.getElementById("winEventTimeline"), sec.timeline || []);
   renderHostIdentityContext();
-  renderBars("winAccountBars", buildSecurityAccountBars(scopedUserHostRows, sec.top_users || []), colors.violet);
-  renderBars("winIpBars", buildSecurityIpBars(scopedUserHostRows, sec.top_ips || []), colors.blue);
+  renderHostAccountBars(buildSecurityAccountBars(eventFilteredRows, sec.top_users || []));
+  renderHostIpBars(buildSecurityIpBars(userFilteredRows, sec.top_ips || []));
+  const matrixRows = filterHostRowsBySelectedIp(userFilteredRows);
   drawMatrixHeatmap(
     document.getElementById("winUserHostHeat"),
-    scopedUserHostRows.map((d) => ({ row: d.user, col: d.host, value: d.value, detail: d.event_id })),
-    { rowLimit: 12, colLimit: 10, color: "blue" }
+    matrixRows.map((d) => ({ row: d.user, col: d.host, value: d.value, detail: d.event_id })),
+    { rowLimit: 12, colLimit: 10, color: "blue", rotateColumnLabels: true }
   );
 }
 
@@ -607,7 +815,7 @@ function syncNewNetworkTimeSlider(timelineRows) {
     const sourceLayer = state.networkEvidenceSource || "all";
     const direction = sourceLayer === "firewall" ? state.networkEvidenceDirection : "all";
     sliderGranularity = "hour";
-    rows = buildNetworkEvidenceTimelineRows(sourceLayer, direction, sliderGranularity, state.networkEvidenceSignature);
+    rows = buildNetworkEvidenceTimelineRowsForGranularity(sourceLayer, direction, sliderGranularity);
   }
   const maxIndex = Math.max(0, rows.length - 1);
   cursorInput.min = "0";
@@ -643,7 +851,7 @@ function applyNewNetworkTimeSlider() {
   const sourceLayer = state.networkEvidenceSource || "all";
   const direction = sourceLayer === "firewall" ? state.networkEvidenceDirection : "all";
   const granularity = cursorInput.dataset.sliderGranularity || state.networkEvidenceTimeGranularity || "hour";
-  const rows = buildNetworkEvidenceTimelineRows(sourceLayer, direction, granularity, state.networkEvidenceSignature);
+  const rows = buildNetworkEvidenceTimelineRowsForGranularity(sourceLayer, direction, granularity);
   if (!rows.length) return;
   const index = Math.max(0, Math.min(rows.length - 1, Number(cursorInput.value || 0)));
   const selected = rows[index]?.time;
@@ -668,11 +876,20 @@ function findNearestTimeIndex(rows, value) {
 function renderNetworkEvidenceIpStatus() {
   const el = document.getElementById("newNetIpStatus");
   if (!el) return;
-  const pair = state.networkEvidenceIpPair;
-  el.textContent = pair
-    ? `selected IP pair: ${pair.source} -> ${pair.target} | click to clear`
-    : "click an IP-pair cell to filter dependent views";
-  el.classList.toggle("active-filter", Boolean(pair));
+  const pairs = selectedNetworkEvidenceIpPairs();
+  const sourceIp = state.networkEvidenceSourceIp || "all";
+  const destinationIp = state.networkEvidenceDestinationIp || "all";
+  if (pairs.length) {
+    const label = pairs.length === 1
+      ? `${pairs[0].source} -> ${pairs[0].target}`
+      : `${pairs.length} selected IP pairs`;
+    el.textContent = `selected IP pairs: ${label} | click to clear`;
+  } else if (networkEvidenceIpFiltersActive()) {
+    el.textContent = `IP filters: source=${sourceIp}, destination=${destinationIp}`;
+  } else {
+    el.textContent = "click one or more IP-pair cells to filter dependent views";
+  }
+  el.classList.toggle("active-filter", Boolean(pairs.length) || networkEvidenceIpFiltersActive());
 }
 
 function renderNetworkEvidencePortStatus() {
@@ -710,6 +927,49 @@ function filterRowsByIpPair(rows, pair) {
     const target = stripEndpoint(row.target);
     return source === pair.source && target === pair.target;
   });
+}
+
+function selectedNetworkEvidenceIpPairs() {
+  const pairs = state.networkEvidenceIpPairs || [];
+  if (pairs.length) return pairs;
+  return state.networkEvidenceIpPair ? [state.networkEvidenceIpPair] : [];
+}
+
+function ipPairKey(pair) {
+  return `${stripEndpoint(pair?.source || "")}->${stripEndpoint(pair?.target || "")}`;
+}
+
+function filterRowsByIpPairs(rows, pairs) {
+  const keys = new Set((pairs || []).map(ipPairKey));
+  if (!keys.size) return rows || [];
+  return (rows || []).filter((row) => keys.has(ipPairKey({ source: row.source, target: row.target })));
+}
+
+function filterRowsByNetworkEvidenceIpFilters(rows) {
+  const sourceIp = state.networkEvidenceSourceIp || "all";
+  const destinationIp = state.networkEvidenceDestinationIp || "all";
+  if (sourceIp === "all" && destinationIp === "all") return rows || [];
+  return (rows || []).filter((row) => {
+    const source = stripEndpoint(row.source || "");
+    const target = stripEndpoint(row.target || "");
+    return (sourceIp === "all" || source === sourceIp)
+      && (destinationIp === "all" || target === destinationIp);
+  });
+}
+
+function networkEvidenceIpFiltersActive() {
+  return (state.networkEvidenceSourceIp || "all") !== "all"
+    || (state.networkEvidenceDestinationIp || "all") !== "all";
+}
+
+function updateInvestigationContextFromNetworkIpFilters() {
+  const ips = [state.networkEvidenceSourceIp, state.networkEvidenceDestinationIp]
+    .filter((ip) => ip && ip !== "all");
+  if (!ips.length) {
+    setInvestigationContext([], "", "Network Evidence IP filters");
+    return;
+  }
+  setInvestigationContext(ips, `IP filter ${ips.join(" / ")}`, "Network Evidence IP filters");
 }
 
 function filterRowsByPortSelections(rows, selections) {
@@ -758,6 +1018,84 @@ function buildNetworkEvidenceRowsForTimeRange(sourceLayer, direction, range, sig
 
 function hourKey(value) {
   return timeBucketKey(value, "hour").slice(0, 13);
+}
+
+function buildNetworkEvidenceFullAggregateTimelineRows(sourceLayer = "all", granularity = "hour") {
+  const counter = new Map();
+  const include = (layer) => sourceLayer === "all" || sourceLayer === layer;
+  const add = (time, key, value) => {
+    const bucket = timeBucketKey(time, granularity);
+    if (!bucket) return;
+    const current = counter.get(bucket) || { time: bucket, Firewall: 0, IDS: 0, PCAP: 0 };
+    current[key] += Number(value || 0);
+    counter.set(bucket, current);
+  };
+  const rowTotal = (row, preferredKeys = []) => {
+    const keys = preferredKeys.length ? preferredKeys : Object.keys(row).filter((key) => key !== "time");
+    return keys.reduce((sum, key) => sum + Number(row[key] || 0), 0);
+  };
+
+  if (include("firewall")) {
+    (state.data.firewall?.timeline || []).forEach((row) => {
+      add(row.time, "Firewall", rowTotal(row, ["Built", "Teardown", "Deny", "(empty)"]));
+    });
+  }
+  if (include("ids")) {
+    (state.data.ids?.timeline || []).forEach((row) => {
+      add(row.time, "IDS", Number(row.alerts || 0));
+    });
+  }
+  if (include("pcap")) {
+    (state.data.pcap?.timeline || []).forEach((row) => {
+      add(row.time, "PCAP", rowTotal(row, ["TCP", "UDP", "ICMP", "Other", "6", "17", "1"]));
+    });
+  }
+
+  const limit = granularity === "day" ? 30 : granularity === "hour" ? 140 : granularity === "ten" ? 220 : granularity === "second" ? 500 : 360;
+  return [...counter.values()].sort((a, b) => a.time.localeCompare(b.time)).slice(0, limit);
+}
+
+function buildNetworkEvidenceTimelineRowsForGranularity(sourceLayer = "all", direction = "all", granularity = "hour", signature = null) {
+  if (granularity === "day" || granularity === "hour") {
+    return buildNetworkEvidenceFullAggregateTimelineRows(sourceLayer, granularity);
+  }
+  return buildNetworkEvidenceTimelineRows(sourceLayer, direction, granularity, signature);
+}
+
+function hasFullAggregateActivity(timelineRows, selectedTime, selectedRange, granularity = "hour") {
+  if (!selectedTime && !selectedRange) return false;
+  const aggregateGranularity = ["ten", "minute", "second"].includes(granularity) ? "hour" : granularity;
+  if (selectedRange) {
+    const start = timeBucketKey(selectedRange.start, aggregateGranularity);
+    const end = timeBucketKey(selectedRange.end, aggregateGranularity);
+    return (timelineRows || []).some((row) => {
+      const bucket = timeBucketKey(row.time, aggregateGranularity);
+      return bucket >= start && bucket <= end && fullAggregateRowTotal(row) > 0;
+    });
+  }
+  const selectedBucket = timeBucketKey(selectedTime, aggregateGranularity);
+  return (timelineRows || []).some((row) => (
+    timeBucketKey(row.time, aggregateGranularity) === selectedBucket && fullAggregateRowTotal(row) > 0
+  ));
+}
+
+function fullAggregateRowTotal(row) {
+  return ["Firewall", "IDS", "PCAP"].reduce((sum, key) => sum + Number(row?.[key] || 0), 0);
+}
+
+function networkEvidenceAggregateDetailGapActive() {
+  const selectedTime = state.networkEvidenceTime;
+  const selectedRange = state.networkEvidenceTimeRange;
+  if (!selectedTime && !selectedRange) return false;
+  if (state.networkEvidenceSignature) return false;
+  const sourceLayer = state.networkEvidenceSource || "all";
+  const direction = sourceLayer === "firewall" ? state.networkEvidenceDirection : "all";
+  const granularity = state.networkEvidenceTimeGranularity || "hour";
+  const timelineRows = buildNetworkEvidenceFullAggregateTimelineRows(sourceLayer, granularity);
+  const detailRows = selectedRange
+    ? buildNetworkEvidenceRowsForTimeRange(sourceLayer, direction, selectedRange)
+    : buildNetworkEvidenceRowsForHour(sourceLayer, direction, selectedTime);
+  return !detailRows.length && hasFullAggregateActivity(timelineRows, selectedTime, selectedRange, granularity);
 }
 
 function buildNetworkEvidenceTimelineRows(sourceLayer, direction, granularity = "hour", signature = null) {
@@ -965,7 +1303,7 @@ function renderEvidenceCompositionMiniView(contextRows = null) {
   const fw = state.data.firewall || {};
   const ids = state.data.ids || {};
   const pcap = state.data.pcap || {};
-  const hasContext = Boolean(state.networkEvidenceTime || state.networkEvidenceTimeRange || state.networkEvidenceIpPair || (state.networkEvidencePortSelections || []).length || state.networkEvidenceSignature);
+  const hasContext = Boolean(state.networkEvidenceTime || state.networkEvidenceTimeRange || selectedNetworkEvidenceIpPairs().length || (state.networkEvidencePortSelections || []).length || state.networkEvidenceSignature);
   const source = state.networkEvidenceSource || "all";
   const rows = hasContext ? (contextRows || []) : null;
   const contextCounter = (evidence, getter, fallbackRows) => {
@@ -1144,7 +1482,7 @@ function hasNetworkEvidenceSelection() {
   return Boolean(
     state.networkEvidenceTime ||
     state.networkEvidenceTimeRange ||
-    state.networkEvidenceIpPair ||
+    selectedNetworkEvidenceIpPairs().length ||
     (state.networkEvidencePortSelections || []).length ||
     state.networkEvidenceSignature
   );
@@ -1207,8 +1545,31 @@ function protocolName(value) {
 
 function bindNetworkEvidenceNewClicks(combo) {
   bindNewNetworkTimelineClick(document.getElementById("newNetTimeline"), combo);
-  bindNewNetworkHeatmapClick(document.getElementById("newNetIpHeatmap"), combo);
   bindNewNetworkScatterClick(document.getElementById("newNetTimePortScatter"), combo);
+}
+
+function toggleNetworkEvidenceIpPair(cell) {
+  if (!cell?.row || !cell?.col || !Number(cell.value || 0)) return;
+  const nextPair = { source: cell.row, target: cell.col };
+  const key = ipPairKey(nextPair);
+  const current = selectedNetworkEvidenceIpPairs();
+  const exists = current.some((pair) => ipPairKey(pair) === key);
+  state.networkEvidenceIpPairs = exists
+    ? current.filter((pair) => ipPairKey(pair) !== key)
+    : [...current, nextPair];
+  state.networkEvidenceIpPair = null;
+  state.networkEvidenceSignature = null;
+  if (!state.networkEvidenceIpPairs.length) {
+    setInvestigationContext([], "", "Network Evidence IP heatmap");
+    renderNetworkEvidenceNewDashboard();
+    return;
+  }
+  const selectedIps = state.networkEvidenceIpPairs.flatMap((pair) => [pair.source, pair.target]);
+  const label = state.networkEvidenceIpPairs.length === 1
+    ? `IP pair ${state.networkEvidenceIpPairs[0].source} -> ${state.networkEvidenceIpPairs[0].target}`
+    : `${state.networkEvidenceIpPairs.length} selected IP pairs`;
+  setInvestigationContext(selectedIps, label, "Network Evidence IP heatmap");
+  renderNetworkEvidenceNewDashboard();
 }
 
 function bindNewNetworkTimelineClick(svg, combo) {
@@ -1288,7 +1649,7 @@ function bindNewNetworkHeatmapClick(svg, combo) {
     const point = svgPoint(svg, event);
     const { width, height } = svgSize(svg, 760, 360);
     const left = 118;
-    const top = 36;
+    const top = 68;
     const bottom = 24;
     const rowScores = new Map();
     const colScores = new Map();
@@ -1305,9 +1666,25 @@ function bindNewNetworkHeatmapClick(svg, combo) {
     if (!source || !target) return;
     const found = cells.find((cell) => cell.row === source && cell.col === target);
     if (found && found.value) {
-      state.networkEvidenceIpPair = { source, target };
+      const nextPair = { source, target };
+      const key = ipPairKey(nextPair);
+      const current = selectedNetworkEvidenceIpPairs();
+      const exists = current.some((pair) => ipPairKey(pair) === key);
+      state.networkEvidenceIpPairs = exists
+        ? current.filter((pair) => ipPairKey(pair) !== key)
+        : [...current, nextPair];
+      state.networkEvidenceIpPair = null;
       state.networkEvidenceSignature = null;
-      setInvestigationContext([source, target], `IP pair ${source} -> ${target}`, "Network Evidence IP heatmap");
+      if (!state.networkEvidenceIpPairs.length) {
+        setInvestigationContext([], "", "Network Evidence IP heatmap");
+        renderNetworkEvidenceNewDashboard();
+        return;
+      }
+      const selectedIps = state.networkEvidenceIpPairs.flatMap((pair) => [pair.source, pair.target]);
+      const label = state.networkEvidenceIpPairs.length === 1
+        ? `IP pair ${state.networkEvidenceIpPairs[0].source} -> ${state.networkEvidenceIpPairs[0].target}`
+        : `${state.networkEvidenceIpPairs.length} selected IP pairs`;
+      setInvestigationContext(selectedIps, label, "Network Evidence IP heatmap");
       renderNetworkEvidenceNewDashboard();
     }
   };
@@ -1460,9 +1837,25 @@ function renderNetworkEvidenceNewDetail(selection, combo) {
   const container = document.getElementById("newNetClickDetail");
   if (!container) return;
   if (!selection || selection.type === "none") {
+    state.networkEvidenceDetailPayload = null;
     closeNewNetworkDetailDrawer();
     container.innerHTML = `
       <div class="status-empty">No evidence selected. Click a time bar, IP-pair cell, time-port point, or IDS signature.</div>
+    `;
+    return;
+  }
+  if (selection.type === "aggregate_gap") {
+    state.networkEvidenceDetailPayload = null;
+    closeNewNetworkDetailDrawer();
+    const label = selection.range
+      ? `${selection.range.start} - ${selection.range.end}`
+      : selection.time;
+    container.innerHTML = `
+      <div class="status-main">
+        <strong>Full aggregate activity exists</strong>
+        <span>${escapeHtml(label || "selected time bucket")} (${escapeHtml(timeGranularityLabel(selection.granularity || "hour"))})</span>
+      </div>
+      <div class="status-empty">${escapeHtml(aggregateGapMessage())}</div>
     `;
     return;
   }
@@ -1480,6 +1873,15 @@ function renderNetworkEvidenceNewDetail(selection, combo) {
     if (!rows.length) {
       const aggregate = (combo.ipPairs || []).find((d) => d.row === selection.source && d.col === selection.target);
       rows = [{ evidence: aggregate?.detail || "Network", source: selection.source, target: selection.target, port: "multiple", label: "IP x IP aggregate", value: aggregate?.value || 0 }];
+    }
+  } else if (selection.type === "ip_pairs") {
+    title = `Selected IP pairs: ${selection.pairs.length}`;
+    rows = filterRowsByIpPairs(combo.timePorts || [], selection.pairs);
+    if (!rows.length) {
+      rows = (selection.pairs || []).map((pair) => {
+        const aggregate = (combo.ipPairs || []).find((d) => d.row === pair.source && d.col === pair.target);
+        return { evidence: aggregate?.detail || "Network", source: pair.source, target: pair.target, port: "multiple", label: "IP x IP aggregate", value: aggregate?.value || 0 };
+      });
     }
   } else if (selection.type === "port_time") {
     title = `Selected time-port: ${selection.time}, port ${selection.port}`;
@@ -1506,6 +1908,7 @@ function renderNetworkEvidenceNewDetail(selection, combo) {
   }
   const evidenceCounts = countBy(rows, (row) => row.evidence || "unknown");
   const countLabel = `${fmt.format(rows.length)} evidence rows`;
+  state.networkEvidenceDetailPayload = { title, countLabel, evidenceCounts, rows };
   container.innerHTML = `
     <div class="status-main">
       <strong>${escapeHtml(title)}</strong>
@@ -1516,9 +1919,6 @@ function renderNetworkEvidenceNewDetail(selection, combo) {
     </div>
     <button id="newNetOpenDrawerBtn" type="button">Open details</button>
   `;
-  document.getElementById("newNetOpenDrawerBtn")?.addEventListener("click", () => {
-    openNewNetworkDetailDrawer(title, countLabel, evidenceCounts, rows);
-  });
   updateNewNetworkDetailDrawer(title, countLabel, evidenceCounts, rows);
 }
 
@@ -1596,6 +1996,13 @@ function selectedInvestigationIps() {
   return (state.investigationContext?.ips || []).map(stripEndpoint).filter(Boolean);
 }
 
+function selectedRiskExposureIps() {
+  return [
+    ...selectedInvestigationIps(),
+    ...selectedHostIdentityIps(),
+  ].filter(Boolean).filter((ip, index, list) => list.indexOf(ip) === index);
+}
+
 function setInvestigationContext(ips, label, source = "Network Evidence") {
   const uniqueIps = [...new Set((ips || []).map(stripEndpoint).filter(Boolean))];
   state.investigationContext = {
@@ -1607,6 +2014,10 @@ function setInvestigationContext(ips, label, source = "Network Evidence") {
 
 function filterDetailsByInvestigationIps(rows, fields) {
   const ips = selectedInvestigationIps();
+  return filterDetailsByIps(rows, fields, ips);
+}
+
+function filterDetailsByIps(rows, fields, ips) {
   if (!ips.length) return rows || [];
   const ipSet = new Set(ips);
   return (rows || []).filter((row) => fields.some((field) => ipSet.has(stripEndpoint(row[field] || ""))));
@@ -1616,6 +2027,15 @@ function renderLinkedContext(elementId, title) {
   const el = document.getElementById(elementId);
   if (!el) return;
   const ips = selectedInvestigationIps();
+  if (networkEvidenceAggregateDetailGapActive()) {
+    el.classList.add("active");
+    el.innerHTML = `
+      <strong>Linked context:</strong>
+      <span>${escapeHtml(networkEvidenceAggregateGapLabel())}</span>
+      <span>Full aggregate activity exists, but no sampled detail rows are available for this exact time bucket.</span>
+    `;
+    return;
+  }
   if (!ips.length) {
     el.classList.remove("active");
     el.innerHTML = `<span>${escapeHtml(title)} is not filtered. Select an IP or IP-pair in Network Evidence New to link this dashboard.</span>`;
@@ -1629,12 +2049,106 @@ function renderLinkedContext(elementId, title) {
   `;
 }
 
+function renderRiskExposureContext() {
+  const el = document.getElementById("riskExposureContext");
+  if (!el) return;
+  if (networkEvidenceAggregateDetailGapActive()) {
+    el.classList.add("active");
+    el.innerHTML = `
+      <strong>Linked context:</strong>
+      <span>${escapeHtml(networkEvidenceAggregateGapLabel())}</span>
+      <span>Full aggregate activity exists, but no sampled detail rows are available for this exact time bucket.</span>
+    `;
+    return;
+  }
+  const networkIps = selectedInvestigationIps();
+  const hostIps = selectedHostIdentityIps();
+  const ips = selectedRiskExposureIps();
+  const severities = selectedRiskExposureSeverities();
+  const servicePort = state.riskExposureServicePort || "all";
+  const cvePlugin = state.riskExposureCvePlugin || "all";
+  const riskHosts = selectedRiskExposureHosts();
+  const hostServices = selectedRiskExposureHostServices();
+  const hostFindings = selectedRiskExposureHostFindings();
+  if (!ips.length && !severities.length && servicePort === "all" && cvePlugin === "all" && !riskHosts.length && !hostServices.length && !hostFindings.length) {
+    el.classList.remove("active");
+    el.innerHTML = "<span>Risk & Exposure is not filtered. Select an IP in Network Evidence New or Authentication Evidence in Host & Identity.</span>";
+    return;
+  }
+  const parts = [];
+  if (networkIps.length) parts.push(`Network Evidence IP: ${networkIps.join(", ")}`);
+  if (hostIps.length) parts.push(`Host Authentication IP: ${hostIps.join(", ")}`);
+  if (severities.length) parts.push(`Severity: ${severities.join(", ")}`);
+  if (servicePort !== "all") parts.push(`Service/port: ${servicePort}`);
+  if (cvePlugin !== "all") parts.push(`CVE/plugin: ${cvePlugin}`);
+  if (riskHosts.length) parts.push(`Risk host: ${riskHosts.join(", ")}`);
+  if (hostServices.length) parts.push(`Host-service: ${hostServices.map((item) => `${item.host} / ${item.service}`).join(", ")}`);
+  if (hostFindings.length) parts.push(`Host-finding: ${hostFindings.map((item) => `${item.host} / ${item.finding}`).join(", ")}`);
+  el.classList.add("active");
+  el.innerHTML = `
+    <strong>Linked context:</strong>
+    <span>${escapeHtml(parts.join(" | "))}</span>
+    <span>Risk is filtered by ${escapeHtml(ips.length ? ips.join(", ") : "all hosts")}</span>
+    ${severities.length ? `<button type="button" id="clearRiskSeverity" class="context-clear">Clear severity</button>` : ""}
+    ${servicePort !== "all" ? `<button type="button" id="clearRiskServicePort" class="context-clear">Clear service/port</button>` : ""}
+    ${cvePlugin !== "all" ? `<button type="button" id="clearRiskCvePlugin" class="context-clear">Clear CVE/plugin</button>` : ""}
+    ${riskHosts.length ? `<button type="button" id="clearRiskHost" class="context-clear">Clear host</button>` : ""}
+    ${hostServices.length ? `<button type="button" id="clearRiskHostService" class="context-clear">Clear host-service</button>` : ""}
+    ${hostFindings.length ? `<button type="button" id="clearRiskHostFinding" class="context-clear">Clear host-finding</button>` : ""}
+  `;
+  document.getElementById("clearRiskSeverity")?.addEventListener("click", () => {
+    state.riskExposureSeverities = [];
+    state.riskExposureHostServices = [];
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+  document.getElementById("clearRiskServicePort")?.addEventListener("click", () => {
+    state.riskExposureServicePort = "all";
+    state.riskExposureHostServices = [];
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+  document.getElementById("clearRiskCvePlugin")?.addEventListener("click", () => {
+    state.riskExposureCvePlugin = "all";
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+  document.getElementById("clearRiskHost")?.addEventListener("click", () => {
+    state.riskExposureHosts = [];
+    state.riskExposureHostServices = [];
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+  document.getElementById("clearRiskHostService")?.addEventListener("click", () => {
+    state.riskExposureHostServices = [];
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+  document.getElementById("clearRiskHostFinding")?.addEventListener("click", () => {
+    state.riskExposureHostFindings = [];
+    renderAll();
+  });
+}
+
 function renderHostIdentityContext() {
   const el = document.getElementById("hostIdentityContext");
   if (!el) return;
+  if (networkEvidenceAggregateDetailGapActive()) {
+    el.classList.add("active");
+    el.innerHTML = `
+      <strong>Host context:</strong>
+      <span>${escapeHtml(networkEvidenceAggregateGapLabel())}</span>
+      <span>Full aggregate activity exists, but no sampled detail rows are available for this exact time bucket.</span>
+    `;
+    return;
+  }
   const ips = selectedInvestigationIps();
   const range = state.hostIdentityTimeRange;
-  const hasContext = ips.length || range;
+  const eventId = selectedHostIdentityEventId();
+  const accounts = selectedHostIdentityAccounts();
+  const hostIps = selectedHostIdentityIps();
+  const user = state.hostIdentityUser || "all";
+  const hasContext = ips.length || range || eventId !== "all" || accounts.length || hostIps.length || user !== "all";
   el.classList.toggle("active", Boolean(hasContext));
   if (!hasContext) {
     el.textContent = "No linked IP or Windows time range selected.";
@@ -1642,16 +2156,77 @@ function renderHostIdentityContext() {
   }
   const ipText = ips.length ? `Linked IP: ${ips.join(", ")}` : "Linked IP: all";
   const timeText = range ? `Windows time: ${range.start} - ${range.end}` : "Windows time: full range";
+  const eventText = eventId !== "all" ? `Event ID: ${eventId}` : "Event ID: all";
+  const accountText = accounts.length ? `Accounts: ${accounts.join(", ")}` : "Accounts: all";
+  const hostIpText = hostIps.length ? `Authentication IPs: ${hostIps.join(", ")}` : "Authentication IPs: all";
+  const userText = user !== "all" ? `User: ${user}` : "User: all";
   el.innerHTML = `
     <strong>Host context:</strong>
     <span>${escapeHtml(ipText)}</span>
     <span>${escapeHtml(timeText)}</span>
+    <span>${escapeHtml(eventText)}</span>
+    <span>${escapeHtml(accountText)}</span>
+    <span>${escapeHtml(hostIpText)}</span>
+    <span>${escapeHtml(userText)}</span>
     ${range ? `<button type="button" id="clearHostTimeRange" class="context-clear">Clear time</button>` : ""}
+    ${eventId !== "all" ? `<button type="button" id="clearHostEventId" class="context-clear">Clear Event ID</button>` : ""}
+    ${accounts.length ? `<button type="button" id="clearHostAccount" class="context-clear">Clear accounts</button>` : ""}
+    ${hostIps.length ? `<button type="button" id="clearHostIp" class="context-clear">Clear IPs</button>` : ""}
+    ${user !== "all" ? `<button type="button" id="clearHostUser" class="context-clear">Clear user</button>` : ""}
   `;
   document.getElementById("clearHostTimeRange")?.addEventListener("click", () => {
     state.hostIdentityTimeRange = null;
     renderWindowsLogsDashboard();
   });
+  document.getElementById("clearHostEventId")?.addEventListener("click", () => {
+    state.hostIdentityEventId = "all";
+    renderWindowsLogsDashboard();
+  });
+  document.getElementById("clearHostAccount")?.addEventListener("click", () => {
+    state.hostIdentityAccounts = [];
+    renderWindowsLogsDashboard();
+  });
+  document.getElementById("clearHostIp")?.addEventListener("click", () => {
+    state.hostIdentityIps = [];
+    renderAll();
+  });
+  document.getElementById("clearHostUser")?.addEventListener("click", () => {
+    state.hostIdentityUser = "all";
+    renderWindowsLogsDashboard();
+  });
+}
+
+function networkEvidenceAggregateGapLabel() {
+  const granularity = state.networkEvidenceTimeGranularity || "hour";
+  const range = state.networkEvidenceTimeRange;
+  if (range) {
+    return `${timeGranularityLabel(granularity)} range: ${range.start} - ${range.end}`;
+  }
+  return `${timeGranularityLabel(granularity)}: ${state.networkEvidenceTime || "selected time bucket"}`;
+}
+
+function aggregateGapMessage() {
+  return "Full aggregate activity exists, but no sampled detail rows are available for this exact time bucket. Use 1 hour / 10 min zoom or raw drill-down.";
+}
+
+function renderAggregateGapHostEmptyState() {
+  drawSvgEmptyState(document.getElementById("winEventTimeline"), "Full aggregate network activity exists", aggregateGapMessage());
+  renderHtmlEmptyState("winAccountBars", aggregateGapMessage());
+  renderHtmlEmptyState("winIpBars", aggregateGapMessage());
+  drawSvgEmptyState(document.getElementById("winUserHostHeat"), "No sampled host detail rows", aggregateGapMessage());
+}
+
+function renderAggregateGapRiskEmptyState() {
+  drawSvgEmptyState(document.getElementById("nessusSeverityTreemap"), "Full aggregate network activity exists", aggregateGapMessage());
+  drawSvgEmptyState(document.getElementById("nessusHostServiceHeat"), "No sampled risk detail rows", aggregateGapMessage());
+  drawSvgEmptyState(document.getElementById("nessusHostPluginScatter"), "No sampled risk detail rows", aggregateGapMessage());
+  drawSvgEmptyState(document.getElementById("nessusParallelCoordinates"), "No sampled risk detail rows", aggregateGapMessage());
+}
+
+function renderHtmlEmptyState(id, message) {
+  const container = document.getElementById(id);
+  if (!container) return;
+  container.innerHTML = `<div class="empty-state">${escapeHtml(message)}</div>`;
 }
 
 function getSecurityUserHostRowsForHostContext(sec) {
@@ -1751,8 +2326,264 @@ function buildRiskCountsFromNessusDetails(details) {
   return counter.entries().map(([key, value]) => ({ key, value }));
 }
 
+function filterNessusDetailsBySelectedSeverity(details) {
+  const severities = selectedRiskExposureSeverities();
+  if (!severities.length) return details || [];
+  const selected = new Set(severities);
+  return (details || []).filter((row) => selected.has(String(row.severity || "unknown")));
+}
+
+function syncRiskExposureControls(details) {
+  const rows = details || [];
+  const severityOrder = {
+    "Security Hole": 1,
+    "Security Warning": 2,
+    "Security Note": 3,
+    "(empty)": 4,
+  };
+  const severities = unique(rows.map((row) => row.severity || "unknown").filter(Boolean))
+    .sort((a, b) => (severityOrder[a] ?? 99) - (severityOrder[b] ?? 99) || String(a).localeCompare(String(b)));
+  const hosts = unique(rows.map((row) => row.host || row.ip_address).filter(Boolean))
+    .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  const services = unique(rows.map(nessusServicePort).filter(Boolean))
+    .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  const findings = unique(rows.map(nessusFinding).filter(Boolean))
+    .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+
+  if (selectedRiskExposureSeverities().length && !selectedRiskExposureSeverities().some((item) => severities.includes(item))) {
+    state.riskExposureSeverities = [];
+  }
+  if (selectedRiskExposureHosts().length && !selectedRiskExposureHosts().some((item) => hosts.includes(item))) {
+    state.riskExposureHosts = [];
+  }
+  if (state.riskExposureServicePort !== "all" && !services.includes(state.riskExposureServicePort)) {
+    state.riskExposureServicePort = "all";
+  }
+  if (state.riskExposureCvePlugin !== "all" && !findings.includes(state.riskExposureCvePlugin)) {
+    state.riskExposureCvePlugin = "all";
+  }
+
+  syncHostSelect("riskSeveritySelect", severities, selectedRiskExposureSeverities()[0] || "all");
+  syncHostSelect("riskHostSelect", hosts, selectedRiskExposureHosts()[0] || "all");
+  syncHostSelect("riskServicePortSelect", services, state.riskExposureServicePort || "all");
+  syncHostSelect("riskCvePluginSelect", findings, state.riskExposureCvePlugin || "all");
+}
+
+function nessusServicePort(row) {
+  return row.service || row.port || "unknown";
+}
+
+function filterNessusDetailsBySelectedServicePort(details) {
+  const service = state.riskExposureServicePort || "all";
+  if (!service || service === "all") return details || [];
+  return (details || []).filter((row) => nessusServicePort(row) === service);
+}
+
+function filterNessusDetailsBySelectedCvePlugin(details) {
+  const finding = state.riskExposureCvePlugin || "all";
+  if (!finding || finding === "all") return details || [];
+  return (details || []).filter((row) => nessusFinding(row) === finding);
+}
+
+function filterNessusDetailsBySelectedHosts(details) {
+  const hosts = selectedRiskExposureHosts();
+  if (!hosts.length) return details || [];
+  const selected = new Set(hosts);
+  return (details || []).filter((row) => selected.has(row.host || row.ip_address || ""));
+}
+
+function filterNessusDetailsBySelectedHostService(details) {
+  const selected = new Set(selectedRiskExposureHostServiceKeys());
+  if (!selected.size) return details || [];
+  return (details || []).filter((row) => selected.has(nessusHostServiceKeyFromDetail(row)));
+}
+
+function filterNessusDetailsBySelectedHostFinding(details) {
+  const selected = new Set(selectedRiskExposureHostFindingKeys());
+  if (!selected.size) return details || [];
+  return (details || []).filter((row) => selected.has(nessusHostFindingKeyFromDetail(row)));
+}
+
+function selectedRiskExposureSeverities() {
+  if (Array.isArray(state.riskExposureSeverities)) {
+    return state.riskExposureSeverities.filter(Boolean);
+  }
+  return state.riskExposureSeverity ? [state.riskExposureSeverity] : [];
+}
+
+function toggleRiskExposureSeverity(key) {
+  if (!key) return;
+  const severities = selectedRiskExposureSeverities();
+  state.riskExposureSeverities = severities.includes(key)
+    ? severities.filter((item) => item !== key)
+    : [...severities, key];
+  state.riskExposureSeverity = null;
+  state.riskExposureHosts = [];
+  state.riskExposureHostServices = [];
+  state.riskExposureHostFindings = [];
+}
+
+function selectedRiskExposureHosts() {
+  return Array.isArray(state.riskExposureHosts)
+    ? state.riskExposureHosts.filter(Boolean)
+    : [];
+}
+
+function toggleRiskExposureHost(row) {
+  const host = typeof row === "string" ? row : row?.row;
+  if (!host) return;
+  const current = selectedRiskExposureHosts();
+  state.riskExposureHosts = current.includes(host)
+    ? current.filter((item) => item !== host)
+    : [...current, host];
+  state.riskExposureHostServices = [];
+  state.riskExposureHostFindings = [];
+  renderAll();
+}
+
+function syncRiskExposureHostSelection(details) {
+  const available = new Set((details || []).map((row) => row.host || row.ip_address || "").filter(Boolean));
+  state.riskExposureHosts = selectedRiskExposureHosts().filter((host) => available.has(host));
+}
+
+function selectedRiskExposureHostServices() {
+  return Array.isArray(state.riskExposureHostServices)
+    ? state.riskExposureHostServices.filter((item) => item?.host && item?.service)
+    : [];
+}
+
+function selectedRiskExposureHostServiceKeys() {
+  return selectedRiskExposureHostServices().map(riskHostServiceKey);
+}
+
+function riskHostServiceKey(item) {
+  return `${item.host}|${item.service}`;
+}
+
+function nessusHostServiceKeyFromDetail(row) {
+  return riskHostServiceKey({
+    host: row.host || row.ip_address || "",
+    service: row.service || row.port || "unknown",
+  });
+}
+
+function toggleRiskExposureHostService(cell) {
+  if (!cell?.row || !cell?.col) return;
+  const item = { host: cell.row, service: cell.col };
+  const key = riskHostServiceKey(item);
+  const current = selectedRiskExposureHostServices();
+  state.riskExposureHostServices = current.some((selected) => riskHostServiceKey(selected) === key)
+    ? current.filter((selected) => riskHostServiceKey(selected) !== key)
+    : [...current, item];
+  state.riskExposureHostFindings = [];
+  renderAll();
+}
+
+function toggleRiskExposureHostServiceAndHost(cell) {
+  if (!cell?.row || !cell?.col) return;
+  const currentHosts = selectedRiskExposureHosts();
+  if (!currentHosts.includes(cell.row)) {
+    state.riskExposureHosts = [...currentHosts, cell.row];
+  }
+  toggleRiskExposureHostService(cell);
+}
+
+function syncRiskExposureHostServiceSelection(details) {
+  const available = new Set((details || []).map(nessusHostServiceKeyFromDetail));
+  state.riskExposureHostServices = selectedRiskExposureHostServices()
+    .filter((item) => available.has(riskHostServiceKey(item)));
+}
+
+function selectedRiskExposureHostFindings() {
+  return Array.isArray(state.riskExposureHostFindings)
+    ? state.riskExposureHostFindings.filter((item) => item?.host && item?.finding)
+    : [];
+}
+
+function selectedRiskExposureHostFindingKeys() {
+  return selectedRiskExposureHostFindings().map(riskHostFindingKey);
+}
+
+function riskHostFindingKey(item) {
+  return `${item.host}|${item.finding}`;
+}
+
+function nessusFinding(row) {
+  return firstNonEmpty([firstCve(row.cve), row.plugin_id, row.plugin_name, "unknown"]);
+}
+
+function nessusHostFindingKeyFromDetail(row) {
+  return riskHostFindingKey({
+    host: row.host || row.ip_address || "",
+    finding: nessusFinding(row),
+  });
+}
+
+function toggleRiskExposureHostFinding(point) {
+  if (!point?.x || !point?.y) return;
+  const item = { host: point.x, finding: point.y };
+  const key = riskHostFindingKey(item);
+  const current = selectedRiskExposureHostFindings();
+  state.riskExposureHostFindings = current.some((selected) => riskHostFindingKey(selected) === key)
+    ? current.filter((selected) => riskHostFindingKey(selected) !== key)
+    : [...current, item];
+  renderAll();
+}
+
+function syncRiskExposureHostFindingSelection(details) {
+  const available = new Set((details || []).map(nessusHostFindingKeyFromDetail));
+  state.riskExposureHostFindings = selectedRiskExposureHostFindings()
+    .filter((item) => available.has(riskHostFindingKey(item)));
+}
+
+function syncHostIdentityControls(sec) {
+  const rows = sec.user_host_matrix || [];
+  const hourlyRows = sec.user_host_matrix_by_hour || [];
+  const timelineEventIds = (sec.timeline || [])
+    .flatMap((row) => Object.keys(row || {}))
+    .filter((key) => key !== "time" && key !== "events");
+  const eventIds = unique([
+    ...(sec.event_ids || []).map((item) => item.key),
+    ...rows.map((row) => row.event_id),
+    ...hourlyRows.map((row) => row.event_id),
+    ...timelineEventIds,
+  ].filter(Boolean));
+  const accounts = unique([
+    ...(sec.top_users || []).map((item) => item.key),
+    ...rows.map((row) => row.user),
+    ...hourlyRows.map((row) => row.user),
+  ].filter(Boolean)).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  const ips = unique([
+    ...(sec.top_ips || []).map((item) => item.key),
+    ...rows.map((row) => row.host),
+    ...hourlyRows.map((row) => row.host),
+  ].filter(Boolean)).sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+  const users = unique([
+    ...rows.map((row) => row.user),
+    ...hourlyRows.map((row) => row.user),
+  ].filter(Boolean))
+    .sort((a, b) => String(a).localeCompare(String(b), undefined, { numeric: true }));
+
+  syncHostSelect("hostEventIdSelect", eventIds, selectedHostIdentityEventId());
+  syncHostSelect("hostAccountSelect", accounts, selectedHostIdentityAccounts()[0] || "all");
+  syncHostSelect("hostIpSelect", ips, selectedHostIdentityIps()[0] || "all");
+  syncHostSelect("hostUserSelect", users, state.hostIdentityUser || "all");
+}
+
+function syncHostSelect(id, values, selectedValue) {
+  const select = document.getElementById(id);
+  if (!select) return;
+  const normalizedValues = unique((values || []).map(String).filter(Boolean));
+  const value = selectedValue && normalizedValues.includes(String(selectedValue)) ? String(selectedValue) : "all";
+  select.innerHTML = [
+    `<option value="all">All</option>`,
+    ...normalizedValues.map((item) => `<option value="${escapeHtml(item)}">${escapeHtml(item)}</option>`),
+  ].join("");
+  select.value = value;
+}
+
 function buildSecurityAccountBars(userHostRows, fallbackRows) {
-  if (!selectedInvestigationIps().length && !state.hostIdentityTimeRange) return (fallbackRows || []).slice(0, 12);
+  if (!hostIdentityAnyFilterActive()) return (fallbackRows || []).slice(0, 12);
   const counter = new Map();
   (userHostRows || []).forEach((row) => {
     const key = row.user || "unknown";
@@ -1765,7 +2596,7 @@ function buildSecurityAccountBars(userHostRows, fallbackRows) {
 }
 
 function buildSecurityIpBars(userHostRows, fallbackRows) {
-  if (!selectedInvestigationIps().length && !state.hostIdentityTimeRange) return (fallbackRows || []).slice(0, 12);
+  if (!hostIdentityAnyFilterActive()) return (fallbackRows || []).slice(0, 12);
   const counter = new Map();
   (userHostRows || []).forEach((row) => {
     const key = row.host || "unknown";
@@ -1775,6 +2606,118 @@ function buildSecurityIpBars(userHostRows, fallbackRows) {
     .map(([key, value]) => ({ key, value }))
     .sort((a, b) => b.value - a.value)
     .slice(0, 12);
+}
+
+function hostIdentityAnyFilterActive() {
+  return Boolean(
+    selectedInvestigationIps().length
+    || state.hostIdentityTimeRange
+    || selectedHostIdentityEventId() !== "all"
+    || selectedHostIdentityAccounts().length
+    || selectedHostIdentityIps().length
+    || (state.hostIdentityUser && state.hostIdentityUser !== "all")
+  );
+}
+
+function selectedHostIdentityEventId() {
+  return state.hostIdentityEventId || "all";
+}
+
+function filterHostRowsBySelectedEventId(rows) {
+  const eventId = selectedHostIdentityEventId();
+  if (!eventId || eventId === "all") return rows || [];
+  return (rows || []).filter((row) => String(row.event_id || "") === eventId);
+}
+
+function filterHostRowsBySelectedAccount(rows) {
+  const accounts = selectedHostIdentityAccounts();
+  if (!accounts.length) return rows || [];
+  const selected = new Set(accounts);
+  return (rows || []).filter((row) => selected.has(String(row.user || "")));
+}
+
+function filterHostRowsBySelectedUser(rows) {
+  const user = state.hostIdentityUser || "all";
+  if (!user || user === "all") return rows || [];
+  return (rows || []).filter((row) => String(row.user || "") === user);
+}
+
+function selectedHostIdentityAccounts() {
+  return Array.isArray(state.hostIdentityAccounts)
+    ? state.hostIdentityAccounts.filter(Boolean)
+    : [];
+}
+
+function toggleHostIdentityAccount(account) {
+  if (!account) return;
+  const accounts = selectedHostIdentityAccounts();
+  state.hostIdentityAccounts = accounts.includes(account)
+    ? accounts.filter((item) => item !== account)
+    : [...accounts, account];
+}
+
+function filterHostRowsBySelectedIp(rows) {
+  const ips = selectedHostIdentityIps();
+  if (!ips.length) return rows || [];
+  const selected = new Set(ips);
+  return (rows || []).filter((row) => selected.has(String(row.host || "")));
+}
+
+function selectedHostIdentityIps() {
+  return Array.isArray(state.hostIdentityIps)
+    ? state.hostIdentityIps.map(stripEndpoint).filter(Boolean)
+    : [];
+}
+
+function toggleHostIdentityIp(ip) {
+  const normalizedIp = stripEndpoint(ip || "");
+  if (!normalizedIp) return;
+  const ips = selectedHostIdentityIps();
+  state.hostIdentityIps = ips.includes(normalizedIp)
+    ? ips.filter((item) => item !== normalizedIp)
+    : [...ips, normalizedIp];
+}
+
+function renderHostAccountBars(data) {
+  renderBars("winAccountBars", data, colors.violet);
+  const container = document.getElementById("winAccountBars");
+  if (!container) return;
+  container.querySelectorAll(".bar-row").forEach((row) => {
+    const account = row.querySelector(".bar-label")?.textContent || "";
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+    row.classList.toggle("selected-row", selectedHostIdentityAccounts().includes(account));
+    row.addEventListener("click", () => {
+      toggleHostIdentityAccount(account);
+      renderWindowsLogsDashboard();
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      row.click();
+    });
+  });
+}
+
+function renderHostIpBars(data) {
+  renderBars("winIpBars", data, colors.blue);
+  const container = document.getElementById("winIpBars");
+  if (!container) return;
+  container.querySelectorAll(".bar-row").forEach((row) => {
+    const ip = row.querySelector(".bar-label")?.textContent || "";
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+    row.classList.toggle("selected-row", selectedHostIdentityIps().includes(stripEndpoint(ip)));
+    row.addEventListener("click", () => {
+      toggleHostIdentityIp(ip);
+      renderAll();
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      row.click();
+    });
+  });
 }
 
 class CounterShim {
@@ -1850,19 +2793,19 @@ function renderMetrics() {
 function populateInvestigationFilters() {
   if (!state.data) return;
   const model = getInvestigationModel();
-  fillSelect("filterSourceIp", "(Multiple...)", unique(model.links.map((d) => d.source)));
-  fillSelect("filterDestIp", "(All)", unique(model.links.map((d) => d.target)));
+  fillSelect("filterSourceIp", "(Multiple...)", mergeIpOptions(unique(model.links.map((d) => d.source)), idsIpOptions("source")), 500);
+  fillSelect("filterDestIp", "(All)", mergeIpOptions(unique(model.links.map((d) => d.target)), idsIpOptions("destination")), 500);
   fillSelect("filterLabel", "(All)", model.labels.map((d) => d.key));
   fillSelect("destPortSelect", "(All)", model.destPorts.map((d) => d.key));
   fillSelect("packetInfoSelect", "(All)", model.packetInfo.map((d) => d.key));
 }
 
-function fillSelect(id, firstLabel, values) {
+function fillSelect(id, firstLabel, values, limit = 18) {
   const select = document.getElementById(id);
   if (!select) return;
   const old = select.value;
   select.innerHTML = `<option value="all">${firstLabel}</option>` +
-    values.slice(0, 18).map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
+    values.slice(0, limit).map((value) => `<option value="${escapeHtml(value)}">${escapeHtml(value)}</option>`).join("");
   select.value = [...select.options].some((option) => option.value === old) ? old : "all";
 }
 
@@ -1985,6 +2928,13 @@ async function fetchRawEvidence() {
   }
 }
 
+function closeRawEvidence() {
+  const el = document.getElementById("rawEvidence");
+  if (!el) return;
+  el.dataset.loaded = "false";
+  updateRawEvidenceHint();
+}
+
 function applyFlowFilters(links) {
   return links.filter((link) => {
     const sourceOk = state.filters.sourceIp === "all" || link.source === state.filters.sourceIp;
@@ -2019,7 +2969,7 @@ function drawPortActivity(svg, model) {
   drawLineChart(svg, rows, "activity", colors.amber);
 }
 
-function drawTreemap(svg, rows) {
+function drawTreemap(svg, rows, options = {}) {
   if (!svg) return;
   const width = svg.clientWidth || 520;
   const height = svg.clientHeight || 360;
@@ -2027,9 +2977,10 @@ function drawTreemap(svg, rows) {
   svg.innerHTML = "";
   const data = rows.slice(0, 10);
   if (!data.length) {
-    drawSvgEmptyState(svg, "No matching risk data", "The selected Network Evidence IP is not present in Nessus details.");
+    drawSvgEmptyState(svg, options.emptyTitle || "No matching data", options.emptyMessage || "No rows are available for the current selection.");
     return;
   }
+  const selectedKeys = new Set(options.selectedKeys || (options.selectedKey ? [options.selectedKey] : []));
   const total = data.reduce((sum, d) => sum + Number(d.value || 0), 0) || 1;
   const palette = [colors.red, colors.blue, colors.teal, colors.amber, colors.violet, colors.gray];
   let x = 0;
@@ -2043,10 +2994,27 @@ function drawTreemap(svg, rows) {
     const cell = horizontal
       ? { x, y, w: Math.min(size, width - x), h }
       : { x, y, w, h: Math.min(size, height - y) };
-    rect(svg, cell.x, cell.y, Math.max(1, cell.w - 2), Math.max(1, cell.h - 2), palette[index % palette.length]);
+    const block = rect(svg, cell.x, cell.y, Math.max(1, cell.w - 2), Math.max(1, cell.h - 2), palette[index % palette.length]);
+    if (block) {
+      appendSvgTitle(block, `${item.key}: ${fmt.format(Number(item.value || 0))}`);
+      if (options.onSelect) {
+        block.setAttribute("style", "cursor:pointer");
+        block.addEventListener("click", () => options.onSelect(item.key));
+      }
+      if (selectedKeys.has(item.key)) {
+        block.setAttribute("stroke", colors.blue);
+        block.setAttribute("stroke-width", "3");
+      }
+    }
     if (cell.w > 95 && cell.h > 36) {
       text(svg, cell.x + 8, cell.y + 18, shortLabel(item.key), "treemap-label");
       text(svg, cell.x + 8, cell.y + 35, compact(item.value), "treemap-value");
+    }
+    if (options.onSelect) {
+      const hitArea = rect(svg, cell.x, cell.y, Math.max(1, cell.w - 2), Math.max(1, cell.h - 2), "transparent");
+      hitArea.setAttribute("style", "cursor:pointer");
+      appendSvgTitle(hitArea, `${item.key}: ${fmt.format(Number(item.value || 0))}`);
+      hitArea.addEventListener("click", () => options.onSelect(item.key));
     }
     if (horizontal) {
       x += cell.w;
@@ -2311,21 +3279,46 @@ function drawMatrixHeatmap(svg, cells, options = {}) {
   const rows = [...rowScores.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).slice(0, rowLimit);
   const cols = [...colScores.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k).slice(0, colLimit);
   const left = 118;
-  const top = 36;
+  const top = options.topOffset || (options.rotateColumnLabels ? 68 : 36);
   const bottom = 24;
   const cellW = (width - left - 12) / Math.max(cols.length, 1);
   const cellH = (height - top - bottom) / Math.max(rows.length, 1);
   const max = Math.max(...cells.map((d) => d.value), 1);
+  const selectedPairKeys = new Set((options.selectedPairs || []).map(ipPairKey));
+  const selectedCellKeys = new Set(options.selectedCellKeys || []);
+  const selectedRows = new Set(options.selectedRows || []);
 
-  cols.forEach((col, i) => text(svg, left + i * cellW + 4, 22, shortLabel(col), "tick-label"));
-  rows.forEach((row, i) => text(svg, 8, top + i * cellH + cellH / 2 + 4, shortLabel(row), "tick-label"));
+  cols.forEach((col, i) => {
+    if (options.rotateColumnLabels) {
+      const x = left + i * cellW + cellW / 2;
+      const y = top - (options.columnLabelGap || 12);
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("x", x);
+      label.setAttribute("y", y);
+      label.setAttribute("text-anchor", "end");
+      label.setAttribute("transform", `rotate(-35 ${x} ${y})`);
+      label.setAttribute("class", options.columnLabelClass || "tick-label");
+      label.textContent = options.fullColumnLabels ? col : shortLabel(col);
+      svg.appendChild(label);
+    } else {
+      text(svg, left + i * cellW + 4, 22, options.fullColumnLabels ? col : shortLabel(col), options.columnLabelClass || "tick-label");
+    }
+  });
+  rows.forEach((row, i) => {
+    const rowLabel = text(svg, 8, top + i * cellH + cellH / 2 + 4, shortLabel(row), selectedRows.has(row) ? "tick-label selected-row-label" : "tick-label");
+    if (options.onRowClick && rowLabel) {
+      rowLabel.setAttribute("style", "cursor:pointer");
+      rowLabel.addEventListener("click", () => options.onRowClick({ row }));
+      appendSvgTitle(rowLabel, `Filter by host/IP: ${row}`);
+    }
+  });
 
   rows.forEach((row, y) => {
     cols.forEach((col, x) => {
       const found = cells.find((d) => d.row === row && d.col === col);
       const value = found ? found.value : 0;
       const alpha = value ? 0.12 + (value / max) * 0.88 : 0.035;
-      rect(
+      const cellRect = rect(
         svg,
         left + x * cellW,
         top + y * cellH,
@@ -2333,8 +3326,25 @@ function drawMatrixHeatmap(svg, cells, options = {}) {
         Math.max(2, cellH - 2),
         `rgba(${palette[0]}, ${palette[1]}, ${palette[2]}, ${alpha})`
       );
+      if (selectedPairKeys.has(ipPairKey({ source: row, target: col }))) {
+        cellRect.setAttribute("stroke", colors.blue);
+        cellRect.setAttribute("stroke-width", "2");
+      }
+      if (selectedCellKeys.has(`${row}|${col}`)) {
+        cellRect.setAttribute("stroke", colors.blue);
+        cellRect.setAttribute("stroke-width", "2");
+      }
+      if (value && options.onCellClick) {
+        cellRect.setAttribute("style", "cursor:pointer");
+        appendSvgTitle(cellRect, `${row} / ${col}: ${fmt.format(Number(value || 0))}`);
+        cellRect.addEventListener("click", (event) => {
+          event.stopPropagation();
+          options.onCellClick({ row, col, value, detail: found?.detail });
+        });
+      }
       if (value && cellW > 45 && cellH > 22) {
-        text(svg, left + x * cellW + 5, top + y * cellH + 15, compact(value), "heat-value");
+        const valueLabel = text(svg, left + x * cellW + 5, top + y * cellH + 15, compact(value), options.valueLabelClass || "heat-value");
+        if (options.onCellClick && valueLabel) valueLabel.setAttribute("pointer-events", "none");
       }
     });
   });
@@ -2499,7 +3509,7 @@ function drawCombinationTimePortScatter(svg, rows) {
   if (!svg) return;
   const width = svg.clientWidth || 620;
   const height = svg.clientHeight || 360;
-  const pad = { top: 24, right: 30, bottom: 62, left: 78 };
+  const pad = { top: 24, right: 30, bottom: 92, left: 78 };
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.innerHTML = "";
   if (svg.id === "newNetTimePortScatter") {
@@ -2549,11 +3559,12 @@ function drawCombinationTimePortScatter(svg, rows) {
   line(svg, pad.left, pad.top, pad.left, pad.top + innerH, "axis");
   ports.forEach((port) => text(svg, 18, yPos(port) + 4, port, "tick-label"));
   times.filter((_, i) => i % Math.ceil(times.length / 6) === 0).forEach((time) => {
+    const labelY = height - 38;
     const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
     label.setAttribute("x", xPos(time));
-    label.setAttribute("y", height - 14);
+    label.setAttribute("y", labelY);
     label.setAttribute("text-anchor", "end");
-    label.setAttribute("transform", `rotate(-35 ${xPos(time)} ${height - 14})`);
+    label.setAttribute("transform", `rotate(-35 ${xPos(time)} ${labelY})`);
     label.setAttribute("class", "tick-label");
     label.textContent = time;
     svg.appendChild(label);
@@ -3081,7 +4092,15 @@ function drawNessusSeverityTreemap(svg, rows) {
     "(empty)": 5,
   };
   const data = [...rows].sort((a, b) => (severityOrder[a.key] ?? 9) - (severityOrder[b.key] ?? 9));
-  drawTreemap(svg, data);
+  drawTreemap(svg, data, {
+    selectedKeys: selectedRiskExposureSeverities(),
+    emptyTitle: "No matching risk data",
+    emptyMessage: "The selected Network Evidence IP is not present in Nessus details.",
+    onSelect: (key) => {
+      toggleRiskExposureSeverity(key);
+      renderAll();
+    },
+  });
 }
 
 function buildNessusHostServiceCells(details) {
@@ -3103,7 +4122,7 @@ function drawNessusHostPluginScatter(svg, details, fallbackRows) {
   const counts = new Map();
   details.forEach((row) => {
     const host = row.host || row.ip_address;
-    const finding = firstNonEmpty([firstCve(row.cve), row.plugin_id, row.plugin_name]);
+    const finding = nessusFinding(row);
     if (!host || !finding) return;
     const key = `${host}|${finding}`;
     const current = counts.get(key) || { x: host, y: finding, value: 0, severity: row.severity };
@@ -3112,18 +4131,22 @@ function drawNessusHostPluginScatter(svg, details, fallbackRows) {
     counts.set(key, current);
   });
   const points = [...counts.values()];
+  const hasDetailPoints = points.length > 0;
   if (!points.length && fallbackRows?.length) {
     fallbackRows.slice(0, 30).forEach((row, index) => {
       points.push({ x: `asset ${index + 1}`, y: row.key, value: row.value, severity: "Security Warning" });
     });
   }
-  drawSeverityScatter(svg, points);
+  drawSeverityScatter(svg, points, {
+    selectedKeys: selectedRiskExposureHostFindingKeys(),
+    onPointClick: hasDetailPoints ? toggleRiskExposureHostFinding : null,
+  });
 }
 
-function drawSeverityScatter(svg, points) {
+function drawSeverityScatter(svg, points, options = {}) {
   const width = svg.clientWidth || 620;
   const height = svg.clientHeight || 360;
-  const pad = { top: 22, right: 22, bottom: 76, left: 126 };
+  const pad = { top: 22, right: 22, bottom: 104, left: 126 };
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.innerHTML = "";
   if (!points.length) {
@@ -3132,6 +4155,7 @@ function drawSeverityScatter(svg, points) {
   }
   const xs = unique(points.map((p) => p.x)).slice(0, 12);
   const ys = unique(points.map((p) => p.y)).slice(0, 10);
+  const selectedKeys = new Set(options.selectedKeys || []);
   const max = Math.max(...points.map((p) => p.value), 1);
   const innerW = width - pad.left - pad.right;
   const innerH = height - pad.top - pad.bottom;
@@ -3141,11 +4165,12 @@ function drawSeverityScatter(svg, points) {
   line(svg, pad.left, pad.top + innerH, width - pad.right, pad.top + innerH, "axis");
   line(svg, pad.left, pad.top, pad.left, pad.top + innerH, "axis");
   xs.forEach((x) => {
+    const labelY = height - 38;
     const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
     label.setAttribute("x", xPos(x));
-    label.setAttribute("y", height - 14);
+    label.setAttribute("y", labelY);
     label.setAttribute("text-anchor", "end");
-    label.setAttribute("transform", `rotate(-35 ${xPos(x)} ${height - 14})`);
+    label.setAttribute("transform", `rotate(-35 ${xPos(x)} ${labelY})`);
     label.setAttribute("class", "tick-label");
     label.textContent = shortLabel(x);
     svg.appendChild(label);
@@ -3154,7 +4179,16 @@ function drawSeverityScatter(svg, points) {
   points.slice(0, 80).forEach((point) => {
     if (!xs.includes(point.x) || !ys.includes(point.y)) return;
     const radius = 4 + Math.sqrt(point.value / max) * 18;
-    circle(svg, xPos(point.x), yPos(point.y), radius, severityColor(point.severity));
+    const dot = circle(svg, xPos(point.x), yPos(point.y), radius, severityColor(point.severity));
+    if (dot) {
+      dot.setAttribute("style", options.onPointClick ? "cursor:pointer" : "cursor:help");
+      if (selectedKeys.has(riskHostFindingKey({ host: point.x, finding: point.y }))) {
+        dot.setAttribute("stroke", colors.blue);
+        dot.setAttribute("stroke-width", "3");
+      }
+      appendSvgTitle(dot, `Host: ${point.x}\nCVE/Plugin: ${point.y}\nSeverity: ${point.severity || "unknown"}\nCount: ${fmt.format(Number(point.value || 0))}`);
+      if (options.onPointClick) dot.addEventListener("click", () => options.onPointClick(point));
+    }
   });
 }
 
@@ -3167,7 +4201,7 @@ function drawNessusParallelCoordinates(svg, details) {
       host: row.host || row.ip_address,
       service: row.service || row.port || "unknown",
       severity: row.severity || "unknown",
-      finding: firstNonEmpty([firstCve(row.cve), row.plugin_id, row.plugin_name, "unknown"]),
+      finding: nessusFinding(row),
       exploit: row.exploit_available || "unknown",
       cvss: bucketCvss(row.cvss),
       weight: severityWeight(row.severity),
@@ -3202,11 +4236,11 @@ function drawNessusParallelCoordinates(svg, details) {
 
   axes.forEach((axis, i) => {
     line(svg, x(i), pad.top, x(i), pad.top + innerH, "axis");
-    text(svg, x(i) - 18, 22, axis.label, "pc-axis-label");
+    text(svg, x(i) - 18, 22, axis.label, "pc-axis-label risk-pc-axis-label");
     axis.values.slice(0, 8).forEach((value) => {
       const yy = y(axis, value);
       line(svg, x(i) - 4, yy, x(i) + 4, yy, "axis");
-      text(svg, x(i) + 6, yy + 4, shortLabel(value), "pc-tick-label");
+      text(svg, x(i) + 6, yy + 4, shortLabel(value), "pc-tick-label risk-pc-tick-label");
     });
   });
 
@@ -3290,12 +4324,32 @@ function drawTimeline(svg, config) {
 
   line(svg, pad.left, pad.top + innerH, width - pad.right, pad.top + innerH, "axis");
   line(svg, pad.left, pad.top, pad.left, pad.top + innerH, "axis");
+  if (config.showYAxis) {
+    const tickValues = [0, 0.25, 0.5, 0.75, 1].map((ratio) => Math.round(max * ratio));
+    tickValues.forEach((value) => {
+      const y = pad.top + innerH - (value / max) * innerH;
+      line(svg, pad.left - 4, y, pad.left, y, "axis");
+      text(svg, 8, y + 4, compact(value), "tick-label");
+    });
+    if (config.yAxisLabel) {
+      const label = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      label.setAttribute("x", 12);
+      label.setAttribute("y", pad.top - 4);
+      label.setAttribute("class", "tick-label");
+      label.textContent = config.yAxisLabel;
+      svg.appendChild(label);
+    }
+  }
   rows.forEach((row, i) => {
     let yCursor = pad.top + innerH;
     series.forEach((s) => {
       const value = Number(row[s.key] || 0);
       const h = (value / max) * innerH;
-      rect(svg, pad.left + i * step + 1, yCursor - h, Math.max(1, step - 2), h, s.color);
+      const segment = rect(svg, pad.left + i * step + 1, yCursor - h, Math.max(1, step - 2), h, s.color);
+      if (segment) {
+        segment.setAttribute("style", "cursor:help");
+        appendSvgTitle(segment, `${s.key}\nTime: ${row.time}\nCount: ${fmt.format(value)}`);
+      }
       yCursor -= h;
     });
   });
@@ -3383,6 +4437,7 @@ function rect(svg, x, y, w, h, fill) {
   el.setAttribute("height", Math.max(0, h));
   el.setAttribute("fill", fill);
   svg.appendChild(el);
+  return el;
 }
 
 function line(svg, x1, y1, x2, y2, cls) {
@@ -3402,6 +4457,7 @@ function text(svg, x, y, content, cls) {
   el.setAttribute("class", cls);
   el.textContent = content;
   svg.appendChild(el);
+  return el;
 }
 
 function circle(svg, cx, cy, r, fill) {
@@ -3413,6 +4469,14 @@ function circle(svg, cx, cy, r, fill) {
   el.setAttribute("stroke", "#fff");
   el.setAttribute("stroke-width", "1.5");
   svg.appendChild(el);
+  return el;
+}
+
+function appendSvgTitle(el, content) {
+  if (!el) return;
+  const title = document.createElementNS("http://www.w3.org/2000/svg", "title");
+  title.textContent = content;
+  el.appendChild(title);
 }
 
 function drawLegend(svg, x, y, items) {

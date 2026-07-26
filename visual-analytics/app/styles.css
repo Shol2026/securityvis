@@ -251,6 +251,15 @@ select {
   min-height: 24px;
 }
 
+.bar-row[role="button"] {
+  cursor: pointer;
+}
+
+.bar-row.selected-row {
+  outline: 1px solid var(--blue);
+  background: #f7fbff;
+}
+
 .bar-label {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -652,7 +661,7 @@ select {
 }
 
 .evidence-composition-panel {
-  grid-column: 1;
+  grid-column: 1 / -1;
 }
 
 .network-detail-status {
@@ -713,6 +722,7 @@ select {
 .network-evidence-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
   margin: 0 0 14px;
   padding: 10px 12px;
@@ -722,7 +732,8 @@ select {
 }
 
 .network-evidence-controls select {
-  min-width: 160px;
+  min-width: 130px;
+  max-width: 180px;
 }
 
 .network-evidence-controls select:disabled {
@@ -736,12 +747,48 @@ select {
   font-size: 12px;
 }
 
-.network-time-slider {
-  display: grid;
-  gap: 6px;
-  width: min(360px, 100%);
+.host-identity-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
   margin: 0 0 14px;
   padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+}
+
+.host-identity-controls select {
+  min-width: 140px;
+  max-width: 220px;
+}
+
+.risk-exposure-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  border-radius: 6px;
+}
+
+.risk-exposure-controls select {
+  min-width: 150px;
+  max-width: 260px;
+}
+
+.network-time-slider {
+  display: grid;
+  flex: 1 1 260px;
+  gap: 4px;
+  min-width: 240px;
+  max-width: 390px;
+  margin: 0;
+  padding: 6px 10px;
   border: 1px solid var(--line);
   background: #fff;
   border-radius: 6px;
@@ -812,7 +859,7 @@ select {
 
 .time-slider-track {
   position: relative;
-  height: 26px;
+  height: 18px;
 }
 
 .time-slider-track input[type="range"] {
@@ -855,17 +902,19 @@ select {
 }
 
 .evidence-composition {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 14px;
 }
 
 .composition-group {
+  flex: 1 1 260px;
   border: 1px solid #e2e8ee;
   background: #fbfcfd;
   border-radius: 5px;
   padding: 12px;
-  min-width: 0;
+  min-width: 240px;
+  overflow: hidden;
 }
 
 .composition-title {
@@ -908,7 +957,7 @@ select {
 
 .composition-row {
   display: grid;
-  grid-template-columns: minmax(74px, 0.9fr) minmax(90px, 1.6fr) 52px;
+  grid-template-columns: minmax(82px, 1fr) minmax(72px, 1.35fr) minmax(48px, auto);
   gap: 8px;
   align-items: center;
   font-size: 12px;
@@ -1529,8 +1578,22 @@ select {
 
 .heat-value {
   fill: #25313d;
-  font-size: 10px;
+  font-size: 13px;
+  font-weight: 700;
   pointer-events: none;
+}
+
+.heat-value-small {
+  fill: #25313d;
+  font-size: 10px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
+.selected-row-label {
+  fill: var(--blue);
+  font-weight: 700;
+  text-decoration: underline;
 }
 
 .parallel-chart {
@@ -1546,6 +1609,21 @@ select {
 
 .pc-tick-label {
   fill: #647281;
+  font-size: 10px;
+}
+
+.risk-service-label {
+  fill: #46586a;
+  font-size: 8px;
+  font-weight: 500;
+}
+
+.risk-pc-axis-label {
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.risk-pc-tick-label {
   font-size: 10px;
 }
 
@@ -1597,6 +1675,14 @@ select {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.4;
+}
+
+.raw-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .raw-head button {
