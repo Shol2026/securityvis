@@ -427,17 +427,7 @@
       </section>
 
       <section class="band view" id="nessusView">
-        <div class="section-head">
-          <h2>Risk &amp; Exposure</h2>
-          <p>Nessus-based exposure reasoning workflow: severity overview, host-service risk structure, repeated CVE/plugin patterns and multivariate vulnerability correlation.</p>
-        </div>
-        <div id="riskExposureContext" class="linked-context"></div>
-        <div class="reasoning-strip">
-          <div><strong>Exposure reasoning</strong><span>Which severity classes dominate the vulnerability surface?</span></div>
-          <div><strong>Asset-service reasoning</strong><span>Which hosts concentrate risk on specific services or ports?</span></div>
-          <div><strong>Pattern recognition</strong><span>Which CVE/plugin findings repeat across assets?</span></div>
-          <div><strong>Multivariate reasoning</strong><span>How do host, service, severity, CVE/plugin and exploit evidence combine?</span></div>
-        </div>
+        <div id="riskExposureContext" class="linked-context" hidden></div>
         <div class="risk-exposure-controls">
           <label for="riskSeveritySelect">Severity</label>
           <select id="riskSeveritySelect">
