@@ -410,6 +410,7 @@ function renderNetworkEvidenceNewDashboard() {
     limit: timelineLimit,
     showYAxis: true,
     yAxisLabel: timeGranularity === "day" || timeGranularity === "hour" ? "full counts" : "detail counts",
+    legendOffsetX: 70,
     series: [
       { key: "Firewall", color: colors.blue },
       { key: "IDS", color: colors.red },
@@ -425,8 +426,8 @@ function renderNetworkEvidenceNewDashboard() {
       color: "red",
       rotateColumnLabels: true,
       fullColumnLabels: true,
-      topOffset: 94,
-      columnLabelGap: 18,
+      topOffset: 126,
+      columnLabelGap: 48,
       selectedPairs: selectedIpPairs,
       valueLabelClass: "heat-value-small",
       onCellClick: toggleNetworkEvidenceIpPair,
@@ -4341,7 +4342,7 @@ function drawTimeline(svg, config) {
   if (!svg) return;
   const width = svg.clientWidth || 900;
   const height = svg.clientHeight || 250;
-  const pad = { top: 18, right: 18, bottom: 38, left: 48 };
+  const pad = { top: config.showYAxis ? 30 : 18, right: 18, bottom: 38, left: 48 };
   svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
   svg.innerHTML = "";
   const rows = config.rows.slice(0, config.limit || 90);
@@ -4390,8 +4391,9 @@ function drawTimeline(svg, config) {
   const ticks = rows.length > 8 ? [0, Math.floor(rows.length / 2), rows.length - 1] : rows.map((_, i) => i);
   ticks.forEach((i) => text(svg, pad.left + i * step, height - 14, rows[i]?.time || "", "tick-label"));
   series.forEach((s, i) => {
-    rect(svg, pad.left + i * 88, 3, 10, 10, s.color);
-    text(svg, pad.left + 14 + i * 88, 12, s.key, "tick-label");
+    const legendX = pad.left + Number(config.legendOffsetX || 0) + i * 88;
+    rect(svg, legendX, 5, 10, 10, s.color);
+    text(svg, legendX + 14, 14, s.key, "tick-label");
   });
 }
 
