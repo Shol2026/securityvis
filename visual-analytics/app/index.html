@@ -375,11 +375,7 @@
       </section>
 
       <section class="band view" id="windowsLogsView">
-        <div class="section-head">
-          <h2>Host &amp; Identity</h2>
-          <p>Windows Security evidence links hosts, accounts, IP addresses, workstations, EventIDs and domain activity. Process views are populated only when process creation fields exist in the log source.</p>
-        </div>
-        <div id="hostIdentityContext" class="linked-context"></div>
+        <div id="hostIdentityContext" class="linked-context" hidden></div>
         <div class="host-identity-controls">
           <label for="hostEventIdSelect">Event ID</label>
           <select id="hostEventIdSelect">
