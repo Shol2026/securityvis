@@ -1224,23 +1224,22 @@ select {
 
 .detail-drawer {
   position: fixed;
-  top: 0;
-  right: 0;
+  left: 50%;
+  top: 18%;
   z-index: 30;
-  width: min(520px, 92vw);
-  height: 100vh;
-  display: flex;
+  width: min(720px, calc(100vw - 24px));
+  max-height: 58vh;
+  display: none;
   flex-direction: column;
   background: #fff;
-  border-left: 1px solid var(--line);
-  box-shadow: -12px 0 28px rgba(24, 33, 43, 0.16);
-  transform: translateX(105%);
-  transition: transform 160ms ease;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  box-shadow: 0 14px 34px rgba(24, 33, 43, 0.2);
   pointer-events: none;
 }
 
 .detail-drawer.open {
-  transform: translateX(0);
+  display: flex;
   pointer-events: auto;
 }
 

@@ -232,7 +232,7 @@ function bindControls() {
     event.stopPropagation();
     const payload = state.networkEvidenceDetailPayload;
     if (!payload) return;
-    openNewNetworkDetailDrawer(payload.title, payload.countLabel, payload.evidenceCounts, payload.rows);
+    openNewNetworkDetailDrawer(payload.title, payload.countLabel, payload.evidenceCounts, payload.rows, button);
   });
   window.addEventListener("resize", debounce(renderAll, 150));
 }
@@ -1927,7 +1927,7 @@ function renderNetworkEvidenceNewDetail(selection, combo) {
     <div class="detail-chips compact">
       ${Object.entries(evidenceCounts).map(([key, value]) => `<span>${escapeHtml(key)}: ${compact(value)}</span>`).join("")}
     </div>
-    <button id="newNetOpenDrawerBtn" type="button">Open details</button>
+    <button id="newNetOpenDrawerBtn" type="button">Firewall Details</button>
   `;
   updateNewNetworkDetailDrawer(title, countLabel, evidenceCounts, rows);
 }
@@ -1938,7 +1938,7 @@ function updateNewNetworkDetailDrawer(title, countLabel, evidenceCounts, rows) {
   openNewNetworkDetailDrawer(title, countLabel, evidenceCounts, rows);
 }
 
-function openNewNetworkDetailDrawer(title, countLabel, evidenceCounts, rows) {
+function openNewNetworkDetailDrawer(title, countLabel, evidenceCounts, rows, anchor = null) {
   const drawer = document.getElementById("newNetDetailDrawer");
   const drawerTitle = document.getElementById("newNetDrawerTitle");
   const drawerSubtitle = document.getElementById("newNetDrawerSubtitle");
@@ -1966,6 +1966,7 @@ function openNewNetworkDetailDrawer(title, countLabel, evidenceCounts, rows) {
   `;
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
+  positionNewNetworkDetailDrawer(drawer, anchor);
 }
 
 function closeNewNetworkDetailDrawer() {
@@ -1973,6 +1974,25 @@ function closeNewNetworkDetailDrawer() {
   if (!drawer) return;
   drawer.classList.remove("open");
   drawer.setAttribute("aria-hidden", "true");
+}
+
+function positionNewNetworkDetailDrawer(drawer, anchor) {
+  if (!drawer) return;
+  if (!anchor) {
+    drawer.style.left = "";
+    drawer.style.top = "";
+    return;
+  }
+  const anchorRect = anchor.getBoundingClientRect();
+  const drawerRect = drawer.getBoundingClientRect();
+  const gap = 10;
+  const left = Math.min(
+    window.innerWidth - drawerRect.width - 12,
+    Math.max(12, anchorRect.left + (anchorRect.width / 2) - (drawerRect.width / 2))
+  );
+  const top = Math.max(12, anchorRect.top - drawerRect.height - gap);
+  drawer.style.left = `${left}px`;
+  drawer.style.top = `${top}px`;
 }
 
 function svgPoint(svg, event) {
