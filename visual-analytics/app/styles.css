@@ -1347,6 +1347,73 @@ select {
   color: var(--muted);
 }
 
+.timeline-action-tooltip {
+  position: fixed;
+  z-index: 30;
+  min-width: 270px;
+  max-width: 380px;
+  padding: 10px 12px;
+  border: 1px solid #cbd6df;
+  border-radius: 6px;
+  background: #fff;
+  box-shadow: 0 8px 18px rgba(24, 33, 43, 0.18);
+  color: var(--ink);
+  font-size: 12px;
+  pointer-events: none;
+}
+
+.timeline-action-tooltip[hidden] {
+  display: none;
+}
+
+.timeline-tooltip-row,
+.timeline-action-head,
+.timeline-action-row {
+  display: grid;
+  grid-template-columns: minmax(80px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+}
+
+.timeline-tooltip-row + .timeline-tooltip-row {
+  margin-top: 4px;
+}
+
+.timeline-action-card {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid #edf2f6;
+}
+
+.timeline-action-head {
+  margin-bottom: 8px;
+}
+
+.timeline-action-row {
+  grid-template-columns: 82px minmax(90px, 1fr) 56px;
+  margin-top: 7px;
+}
+
+.timeline-action-row > strong {
+  text-align: right;
+  font-weight: 500;
+  color: #53687a;
+}
+
+.timeline-action-track {
+  height: 9px;
+  border-radius: 4px;
+  background: #eaf1f5;
+  overflow: hidden;
+}
+
+.timeline-action-track i {
+  display: block;
+  height: 100%;
+  border-radius: 4px;
+  background: var(--blue);
+}
+
 .reasoning-strip {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));

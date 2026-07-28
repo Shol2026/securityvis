@@ -1026,9 +1026,10 @@ function buildNetworkEvidenceFullAggregateTimelineRows(sourceLayer = "all", gran
   const add = (time, key, value) => {
     const bucket = timeBucketKey(time, granularity);
     if (!bucket) return;
-    const current = counter.get(bucket) || { time: bucket, Firewall: 0, IDS: 0, PCAP: 0 };
+    const current = counter.get(bucket) || { time: bucket, Firewall: 0, IDS: 0, PCAP: 0, firewallActions: {} };
     current[key] += Number(value || 0);
     counter.set(bucket, current);
+    return current;
   };
   const rowTotal = (row, preferredKeys = []) => {
     const keys = preferredKeys.length ? preferredKeys : Object.keys(row).filter((key) => key !== "time");
@@ -1037,7 +1038,12 @@ function buildNetworkEvidenceFullAggregateTimelineRows(sourceLayer = "all", gran
 
   if (include("firewall")) {
     (state.data.firewall?.timeline || []).forEach((row) => {
-      add(row.time, "Firewall", rowTotal(row, ["Built", "Teardown", "Deny", "(empty)"]));
+      const current = add(row.time, "Firewall", rowTotal(row, ["Built", "Teardown", "Deny", "(empty)"]));
+      if (current) {
+        ["Built", "Teardown", "Deny", "(empty)"].forEach((action) => {
+          current.firewallActions[action] = Number(current.firewallActions[action] || 0) + Number(row[action] || 0);
+        });
+      }
     });
   }
   if (include("ids")) {
@@ -1103,8 +1109,12 @@ function buildNetworkEvidenceTimelineRows(sourceLayer, direction, granularity = 
   buildNetworkEvidenceEventRows(sourceLayer, direction, signature).forEach((row) => {
     const time = timeBucketKey(row.time, granularity);
     if (!time) return;
-    const current = counter.get(time) || { time, Firewall: 0, IDS: 0, PCAP: 0 };
+    const current = counter.get(time) || { time, Firewall: 0, IDS: 0, PCAP: 0, firewallActions: {} };
     current[row.evidence] = Number(current[row.evidence] || 0) + 1;
+    if (row.evidence === "Firewall") {
+      const action = row.label || "ASA";
+      current.firewallActions[action] = Number(current.firewallActions[action] || 0) + 1;
+    }
     counter.set(time, current);
   });
   const limit = granularity === "day" ? 30 : granularity === "hour" ? 140 : granularity === "ten" ? 220 : granularity === "second" ? 500 : 360;
@@ -4349,6 +4359,10 @@ function drawTimeline(svg, config) {
       if (segment) {
         segment.setAttribute("style", "cursor:help");
         appendSvgTitle(segment, `${s.key}\nTime: ${row.time}\nCount: ${fmt.format(value)}`);
+        if (s.key === "Firewall") {
+          segment.addEventListener("mousemove", (event) => showFirewallTimelineTooltip(event, row, value));
+          segment.addEventListener("mouseleave", hideFirewallTimelineTooltip);
+        }
       }
       yCursor -= h;
     });
@@ -4359,6 +4373,55 @@ function drawTimeline(svg, config) {
     rect(svg, pad.left + i * 88, 3, 10, 10, s.color);
     text(svg, pad.left + 14 + i * 88, 12, s.key, "tick-label");
   });
+}
+
+function showFirewallTimelineTooltip(event, row, value) {
+  let tooltip = document.getElementById("firewallTimelineTooltip");
+  if (!tooltip) {
+    tooltip = document.createElement("div");
+    tooltip.id = "firewallTimelineTooltip";
+    tooltip.className = "timeline-action-tooltip";
+    document.body.appendChild(tooltip);
+  }
+  const actions = Object.entries(row.firewallActions || {})
+    .filter(([, count]) => Number(count || 0) > 0)
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
+  const maxAction = Math.max(...actions.map(([, count]) => Number(count || 0)), 1);
+  tooltip.innerHTML = `
+    <div class="timeline-tooltip-row">
+      <strong>Firewall</strong>
+      <span>${escapeHtml(row.time || "")}</span>
+    </div>
+    <div class="timeline-tooltip-row">
+      <span>Count</span>
+      <strong>${fmt.format(Number(value || 0))}</strong>
+    </div>
+    <div class="timeline-action-card">
+      <div class="timeline-action-head">
+        <strong>Firewall actions</strong>
+        <span>${fmt.format(Number(value || 0))}</span>
+      </div>
+      ${actions.length ? actions.map(([key, count]) => `
+        <div class="timeline-action-row">
+          <span>${escapeHtml(key)}</span>
+          <div class="timeline-action-track"><i style="width:${Math.max(2, (Number(count || 0) / maxAction) * 100)}%"></i></div>
+          <strong>${fmt.format(Number(count || 0))}</strong>
+        </div>
+      `).join("") : `<span class="muted">No firewall action breakdown</span>`}
+    </div>
+  `;
+  tooltip.hidden = false;
+  const offset = 14;
+  const rect = tooltip.getBoundingClientRect();
+  const left = Math.min(window.innerWidth - rect.width - 12, event.clientX + offset);
+  const top = Math.min(window.innerHeight - rect.height - 12, event.clientY + offset);
+  tooltip.style.left = `${Math.max(12, left)}px`;
+  tooltip.style.top = `${Math.max(12, top)}px`;
+}
+
+function hideFirewallTimelineTooltip() {
+  const tooltip = document.getElementById("firewallTimelineTooltip");
+  if (tooltip) tooltip.hidden = true;
 }
 
 function drawLineChart(svg, rows, key, color) {
